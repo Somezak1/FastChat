@@ -8,6 +8,7 @@ python3 -m fastchat.serve.cli --model ~/model_weights/vicuna-7b
 import argparse
 import os
 import re
+import sys
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -113,6 +114,42 @@ class RichChatIO(ChatIO):
         return text
 
 
+class ProgrammaticChatIO(ChatIO):
+    def prompt_for_input(self, role) -> str:
+        print(f"[!OP:{role}]: ", end="", flush=True)
+        contents = ""
+        # `end_sequence` is a randomly-generated, 16-digit number
+        #  that signals the end of a message. It is unlikely to occur in
+        #  message content.
+        end_sequence = "9745805894023423"
+        while True:
+            if len(contents) >= 16:
+                last_chars = contents[-16:]
+                if last_chars == end_sequence:
+                    break
+            try:
+                char = sys.stdin.read(1)
+                contents = contents + char
+            except EOFError:
+                continue
+        return contents[:-16]
+
+    def prompt_for_output(self, role: str):
+        print(f"[!OP:{role}]: ", end="", flush=True)
+
+    def stream_output(self, output_stream):
+        pre = 0
+        for outputs in output_stream:
+            output_text = outputs["text"]
+            output_text = output_text.strip().split(" ")
+            now = len(output_text) - 1
+            if now > pre:
+                print(" ".join(output_text[pre:now]), end=" ", flush=True)
+                pre = now
+        print(" ".join(output_text[pre:]), flush=True)
+        return " ".join(output_text)
+
+
 def main(args):
     if args.gpus:
         # 如果指定的GPU数量, 与指定可见的GPU数量信息不匹配则报错
@@ -126,6 +163,8 @@ def main(args):
         chatio = SimpleChatIO()
     elif args.style == "rich":
         chatio = RichChatIO()
+    elif args.style == "programmatic":
+        chatio = ProgrammaticChatIO()
     else:
         raise ValueError(f"Invalid style for console: {args.style}")
     try:
@@ -138,6 +177,7 @@ def main(args):
             args.cpu_offloading,  # False
             args.conv_template,  # None
             args.temperature,  # 默认是0.7, 但此处为了复现改为0
+            args.repetition_penalty,  # 1.0
             args.max_new_tokens,  # 512
             chatio,
             args.debug,  # False
@@ -154,14 +194,19 @@ if __name__ == "__main__":
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
     parser.add_argument("--temperature", type=float, default=0)  # 温度参数改为0, 方便调试结果可复现
+    parser.add_argument("--repetition_penalty", type=float, default=1.0)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument(
         "--style",
         type=str,
         default="simple",
-        choices=["simple", "rich"],
+        choices=["simple", "rich", "programmatic"],
         help="Display style.",
     )
-    parser.add_argument("--debug", action="store_true", help="Print debug information")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print useful debug information (e.g., prompts)",
+    )
     args = parser.parse_args()
     main(args)
