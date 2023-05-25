@@ -29,7 +29,7 @@ from transformers.trainer_pt_utils import LabelSmoother
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
-IGNORE_TOKEN_ID = LabelSmoother.ignore_index
+IGNORE_TOKEN_ID = LabelSmoother.ignore_index  # -100
 
 
 @dataclass
@@ -78,12 +78,28 @@ def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
-    conv = get_conversation_template("vicuna")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    '''
+    sources:
+    [[
+        {'from': 'human', 'value': 'Who are you?'},
+        {'from': 'gpt', 'value': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).'},
+        {'from': 'human', 'value': 'What can you do?'},
+        {'from': 'gpt', 'value': 'I can chat with you.'}
+    ]]
+    '''
+    conv = get_conversation_template("vicuna")  # Conversation(name='vicuna_v1.1', ...)
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}  # {"human": 'USER', "gpt": 'ASSISTANT'}
 
     # Apply prompt templates
     conversations = []
     for i, source in enumerate(sources):
+        # source:
+        # [
+        #     {'from': 'human', 'value': 'Who are you?'},
+        #     {'from': 'gpt', 'value': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).'},
+        #     {'from': 'human', 'value': 'What can you do?'},
+        #     {'from': 'gpt', 'value': 'I can chat with you.'}
+        # ]
         if roles[source[0]["from"]] != conv.roles[0]:
             # Skip the first one if it is not from human
             source = source[1:]
@@ -94,6 +110,21 @@ def preprocess(
             assert role == conv.roles[j % 2], f"{i}"
             conv.append_message(role, sentence["value"])
         conversations.append(conv.get_prompt())
+        # conv.messages:
+        # [
+        #     ['USER', 'Who are you?'],
+        #     ['ASSISTANT', 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).'],
+        #     ['USER', 'What can you do?'],
+        #     ['ASSISTANT', 'I can chat with you.']
+        # ]
+
+        # conversations:
+        # [
+        #     "A chat between a curious user and an artificial intelligence assistant.
+        #     The assistant gives helpful, detailed, and polite answers to the user's questions.
+        #     USER: Who are you? ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).</s>
+        #     USER: What can you do? ASSISTANT: I can chat with you.</s>"
+        # ]
 
     # Tokenize conversations
     input_ids = tokenizer(
@@ -103,30 +134,129 @@ def preprocess(
         max_length=tokenizer.model_max_length,
         truncation=True,
     ).input_ids
+    # input_ids: (演示用的max length是128)
+    # input_ids的第一位是额外添加的句子开始符的id
+    # tensor([[1, 319, 13563, 1546, 263, 12758, 1404, 322, 385, 23116,
+    #          21082, 20255, 29889, 450, 20255, 4076, 8444, 29892, 13173, 29892,
+    #          322, 1248, 568, 6089, 304, 278, 1404, 29915, 29879, 5155,
+    #          29889, 3148, 1001, 29901, 11644, 526, 366, 29973, 319, 1799,
+    #          9047, 13566, 29901, 306, 626, 13423, 4347, 29892, 263, 4086,
+    #          1904, 16370, 491, 5925, 414, 515, 8218, 479, 8125, 23985,
+    #          9205, 2133, 313, 29931, 4345, 21554, 467, 2, 3148, 1001,
+    #          29901, 1724, 508, 366, 437, 29973, 319, 1799, 9047, 13566,
+    #          29901, 306, 508, 13563, 411, 366, 29889, 2, 0, 0,
+    #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #          0, 0, 0, 0, 0, 0, 0, 0]])
     targets = input_ids.clone()
 
     assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets
-    sep = conv.sep + conv.roles[1] + ": "
+    sep = conv.sep + conv.roles[1] + ": "  # sep: ' ASSISTANT: '
     for conversation, target in zip(conversations, targets):
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+        # conversation:
+        # "A chat between a curious user and an artificial intelligence assistant.
+        # The assistant gives helpful, detailed, and polite answers to the user's questions.
+        # USER: Who are you? ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).</s>
+        # USER: What can you do? ASSISTANT: I can chat with you.</s>"
 
-        rounds = conversation.split(conv.sep2)
+        # target:
+        # tensor([1, 319, 13563, 1546, 263, 12758, 1404, 322, 385, 23116,
+        #          21082, 20255, 29889, 450, 20255, 4076, 8444, 29892, 13173, 29892,
+        #          322, 1248, 568, 6089, 304, 278, 1404, 29915, 29879, 5155,
+        #          29889, 3148, 1001, 29901, 11644, 526, 366, 29973, 319, 1799,
+        #          9047, 13566, 29901, 306, 626, 13423, 4347, 29892, 263, 4086,
+        #          1904, 16370, 491, 5925, 414, 515, 8218, 479, 8125, 23985,
+        #          9205, 2133, 313, 29931, 4345, 21554, 467, 2, 3148, 1001,
+        #          29901, 1724, 508, 366, 437, 29973, 319, 1799, 9047, 13566,
+        #          29901, 306, 508, 13563, 411, 366, 29889, 2, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0])
+        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+        # tokenizer.pad_token_id: 0
+        # target.ne(tokenizer.pad_token_id):
+        # tensor([True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, True, True,
+        #         True, True, True, True, True, True, True, True, False, False,
+        #         False, False, False, False, False, False, False, False, False, False,
+        #         False, False, False, False, False, False, False, False, False, False,
+        #         False, False, False, False, False, False, False, False, False, False,
+        #         False, False, False, False, False, False, False, False])
+        # total_len: 88
+
+        rounds = conversation.split(conv.sep2)  # conv.sep2: '</s>'
         cur_len = 1
-        target[:cur_len] = IGNORE_TOKEN_ID
+        target[:cur_len] = IGNORE_TOKEN_ID  # IGNORE_TOKEN_ID: -100
         for i, rou in enumerate(rounds):
+            # i=0  rou:
+            # "A chat between a curious user and an artificial intelligence assistant.
+            # The assistant gives helpful, detailed, and polite answers to the user's questions.
+            # USER: Who are you? ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS)."
+
+            # i=1  rou: "USER: What can you do? ASSISTANT: I can chat with you."
+
+            # i=2  rou: ""
             if rou == "":
                 break
 
-            parts = rou.split(sep)
+            parts = rou.split(sep)  # sep: ' ASSISTANT: '
             if len(parts) != 2:
                 break
-            parts[0] += sep
-            round_len = len(tokenizer(rou).input_ids)
-            instruction_len = len(tokenizer(parts[0]).input_ids) - 2
+            parts[0] += sep  # parts[0]+parts[1]==rou
+            round_len = len(tokenizer(rou).input_ids)  # i=0  round_len: 67
+            instruction_len = len(tokenizer(parts[0]).input_ids) - 2  # i=0  instruction_len: 42
 
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
+
+            # i=0
+            # temp = tokenizer.tokenize(rou)
+            # for i, j in zip(temp, target[1:len(temp) + 1]):
+            #     print(i, '  ', j.item())
+            #
+            # ▁A - 100
+            # ▁chat - 100
+            # ▁between - 100
+            # ......
+            # ?    -100
+            # ▁A - 100
+            # SS - 100
+            # IST - 100
+            # ANT - 100
+            # :    -100
+            # ▁I 306
+            # ▁am 626
+            # ▁Vic 13423
+            # una 4347
+            # , 29892
+            # ▁a 263
+            # ▁language 4086
+            # ▁model 1904
+            # ▁trained 16370
+            # ▁by 491
+            # ▁research 5925
+            # ers 414
+            # ▁from 515
+            # ▁Lar 8218
+            # ge 479
+            # ▁Model 8125
+            # ▁Systems 23985
+            # ▁Organ 9205
+            # ization 2133
+            # ▁( 313
+            # L  29931
+            # MS 4345
+            # YS 21554
+            # ). 467
 
             cur_len += round_len
         target[cur_len:] = IGNORE_TOKEN_ID
@@ -181,8 +311,6 @@ class LazySupervisedDataset(Dataset):
 
     def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDataset, self).__init__()
-        self.tokenizer = tokenizer
-
         rank0_print("Formatting inputs...Skip in lazy mode")
         self.tokenizer = tokenizer
         self.raw_data = raw_data
@@ -201,6 +329,51 @@ class LazySupervisedDataset(Dataset):
             labels=ret["labels"][0],
             attention_mask=ret["attention_mask"][0],
         )
+        # ret['input_ids']:
+        # tensor([[1, 319, 13563, 1546, 263, 12758, 1404, 322, 385, 23116,
+        #          21082, 20255, 29889, 450, 20255, 4076, 8444, 29892, 13173, 29892,
+        #          322, 1248, 568, 6089, 304, 278, 1404, 29915, 29879, 5155,
+        #          29889, 3148, 1001, 29901, 11644, 526, 366, 29973, 319, 1799,
+        #          9047, 13566, 29901, 306, 626, 13423, 4347, 29892, 263, 4086,
+        #          1904, 16370, 491, 5925, 414, 515, 8218, 479, 8125, 23985,
+        #          9205, 2133, 313, 29931, 4345, 21554, 467, 2, 3148, 1001,
+        #          29901, 1724, 508, 366, 437, 29973, 319, 1799, 9047, 13566,
+        #          29901, 306, 508, 13563, 411, 366, 29889, 2, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        #          0, 0, 0, 0, 0, 0, 0, 0]])
+
+        # ret['labels']:
+        # tensor([[-100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, 306, 626, 13423, 4347, 29892, 263, 4086,
+        #          1904, 16370, 491, 5925, 414, 515, 8218, 479, 8125, 23985,
+        #          9205, 2133, 313, 29931, 4345, 21554, 467, 2, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, 306, 508, 13563, 411, 366, 29889, 2, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+        #          -100, -100, -100, -100, -100, -100, -100, -100]])
+
+        # ret['attention_mask']:
+        # tensor([[True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, True, True,
+        #          True, True, True, True, True, True, True, True, False, False,
+        #          False, False, False, False, False, False, False, False, False, False,
+        #          False, False, False, False, False, False, False, False, False, False,
+        #          False, False, False, False, False, False, False, False, False, False,
+        #          False, False, False, False, False, False, False, False]])
+
         self.cached_data_dict[i] = ret
 
         return ret
@@ -221,8 +394,8 @@ def make_supervised_data_module(
     split = int(len(perm) * 0.98)
     train_indices = perm[:split]
     eval_indices = perm[split:]
-    train_raw_data = [raw_data[i] for i in train_indices]
-    eval_raw_data = [raw_data[i] for i in eval_indices]
+    train_raw_data = [raw_data[i] for i in train_indices]  # [dict, dict, dict]
+    eval_raw_data = [raw_data[i] for i in eval_indices]  # [dict, dict, dict]
     rank0_print(f"#train {len(train_raw_data)}, #eval {len(eval_raw_data)}")
 
     train_dataset = dataset_cls(train_raw_data, tokenizer=tokenizer)

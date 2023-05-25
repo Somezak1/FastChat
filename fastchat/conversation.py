@@ -50,6 +50,11 @@ class Conversation:
     skip_next: bool = False
     model_name: str = None
 
+    # Conversation(name="one_shot", ...)
+    # offset = 2,
+    # sep_style = SeparatorStyle.ADD_COLON_SINGLE,
+    # sep = "\n### ",
+    # stop_str = "###",
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
         if self.sep_style == SeparatorStyle.ADD_COLON_SINGLE:

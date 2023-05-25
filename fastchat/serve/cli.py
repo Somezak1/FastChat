@@ -31,6 +31,16 @@ class SimpleChatIO(ChatIO):
     def stream_output(self, output_stream):
         pre = 0
         for outputs in output_stream:
+            '''
+            若问模型: 'Who are you', 则返回的output_stream里有如下7个元素
+            0  outputs["text"]: 'I'    outputs["finish_reason"]: None
+            1  outputs["text"]: 'I am an'    outputs["finish_reason"]: None
+            2  outputs["text"]: 'I am an artificial intelligence'    outputs["finish_reason"]: None
+            3  outputs["text"]: 'I am an artificial intelligence assistant.'    outputs["finish_reason"]: None
+            4  outputs["text"]: 'I am an artificial intelligence assistant.\n##'    outputs["finish_reason"]: None
+            5  outputs["text"]: 'I am an artificial intelligence assistant.\n'    outputs["finish_reason"]: None
+            6  outputs["text"]: 'I am an artificial intelligence assistant.\n'    outputs["finish_reason"]: stop
+            '''
             output_text = outputs["text"]
             output_text = output_text.strip().split(" ")
             now = len(output_text) - 1
@@ -105,13 +115,14 @@ class RichChatIO(ChatIO):
 
 def main(args):
     if args.gpus:
+        # 如果指定的GPU数量, 与指定可见的GPU数量信息不匹配则报错
         if len(args.gpus.split(",")) < args.num_gpus:
             raise ValueError(
                 f"Larger --num-gpus ({args.num_gpus}) than --gpus {args.gpus}!"
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
 
-    if args.style == "simple":
+    if args.style == "simple":  # simple
         chatio = SimpleChatIO()
     elif args.style == "rich":
         chatio = RichChatIO()
@@ -120,28 +131,29 @@ def main(args):
     try:
         chat_loop(
             args.model_path,
-            args.device,
-            args.num_gpus,
-            args.max_gpu_memory,
-            args.load_8bit,
-            args.cpu_offloading,
-            args.conv_template,
-            args.temperature,
-            args.max_new_tokens,
+            args.device,  # 'cuda'
+            args.num_gpus,  # 1
+            args.max_gpu_memory,  # None
+            args.load_8bit,  # False
+            args.cpu_offloading,  # False
+            args.conv_template,  # None
+            args.temperature,  # 默认是0.7, 但此处为了复现改为0
+            args.max_new_tokens,  # 512
             chatio,
-            args.debug,
+            args.debug,  # False
         )
     except KeyboardInterrupt:
         print("exit...")
 
 
 if __name__ == "__main__":
+    # 接受必要的参数信息
     parser = argparse.ArgumentParser()
-    add_model_args(parser)
+    add_model_args(parser)  # 额外添加一些预先设定好的模型相关参数
     parser.add_argument(
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
-    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--temperature", type=float, default=0)  # 温度参数改为0, 方便调试结果可复现
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument(
         "--style",

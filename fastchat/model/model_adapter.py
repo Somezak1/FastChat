@@ -68,6 +68,7 @@ def get_model_adapter(model_path: str) -> BaseAdapter:
 def raise_warning_for_incompatible_cpu_offloading_configuration(
     device: str, load_8bit: bool, cpu_offloading: bool
 ):
+    # cpu offload, 只能在linux系统的gpu上借助load_8bit才能使用
     if cpu_offloading:
         if not load_8bit:
             warnings.warn(
@@ -93,16 +94,17 @@ def raise_warning_for_incompatible_cpu_offloading_configuration(
 
 def load_model(
     model_path: str,
-    device: str,
-    num_gpus: int,
-    max_gpu_memory: Optional[str] = None,
-    load_8bit: bool = False,
-    cpu_offloading: bool = False,
-    debug: bool = False,
+    device: str,  # 'cuda'
+    num_gpus: int,  # 1
+    max_gpu_memory: Optional[str] = None,  # None
+    load_8bit: bool = False,  # False
+    cpu_offloading: bool = False,  # False
+    debug: bool = False,  # False
 ):
     """Load a model from Hugging Face."""
 
     # Handle device mapping
+    # cpu offload, 只能在linux系统的gpu上借助load_8bit才能使用
     cpu_offloading = raise_warning_for_incompatible_cpu_offloading_configuration(
         device, load_8bit, cpu_offloading
     )
@@ -153,7 +155,7 @@ def load_model(
             )
 
     # Load model
-    adapter = get_model_adapter(model_path)
+    adapter = get_model_adapter(model_path)  # BaseAdapter
     model, tokenizer = adapter.load_model(model_path, kwargs)
 
     if (device == "cuda" and num_gpus == 1 and not cpu_offloading) or device == "mps":
@@ -166,7 +168,7 @@ def load_model(
 
 
 def get_conversation_template(model_path: str) -> Conversation:
-    adapter = get_model_adapter(model_path)
+    adapter = get_model_adapter(model_path)  # BaseAdapter
     return adapter.get_default_conv_template(model_path)
 
 
