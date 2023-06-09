@@ -78,6 +78,9 @@ def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
+    # We adjust the training loss to account for multi-round conversations and
+    # compute the fine-tuning loss solely on the chatbot's output.
+
     '''
     sources:
     [[
@@ -411,6 +414,7 @@ def train():
     )
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = training_args.local_rank
+
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
@@ -418,10 +422,12 @@ def train():
     model.config.use_cache = False
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
-        cache_dir=training_args.cache_dir,
-        model_max_length=training_args.model_max_length,
-        padding_side="right",
-        use_fast=False,
+        cache_dir=training_args.cache_dir, # Path to a directory in which a downloaded pretrained model configuration
+        # should be cached if the standard cache should not be used.
+        model_max_length=training_args.model_max_length,  # Will be passed to the Tokenizer __init__() method.
+        padding_side="right",  # Will be passed to the Tokenizer __init__() method.
+        use_fast=False, # Use a fast Rust-based tokenizer if it is supported for a given model.
+        # If a fast tokenizer is not available for a given model, a normal Python-based tokenizer is returned instead.
     )
     tokenizer.pad_token = tokenizer.unk_token
 
