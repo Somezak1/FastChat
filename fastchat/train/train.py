@@ -13,12 +13,13 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-import copy
 from dataclasses import dataclass, field
 import json
 import pathlib
 from typing import Dict, Optional, Sequence
-
+import os
+import deepspeed
+from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -72,6 +73,42 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
         cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
         del state_dict
         trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
+
+
+def _z3_params_to_fetch(param_list):
+    return [
+        p for p in param_list
+        if hasattr(p, 'ds_id') and p.ds_status == ZeroParamStatus.NOT_AVAILABLE
+    ]
+
+
+def save_zero_three_model(trainer, training_args, zero_stage_3):
+    os.makedirs(training_args.output_dir, exist_ok=True)
+    model_ema = trainer.model
+    model_to_save = model_ema.module if hasattr(model_ema, 'module') else model_ema
+
+    if not zero_stage_3:
+        if training_args.local_rank == 0:
+            state_dict = model_to_save.state_dict()
+            cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
+            trainer._save(training_args.output_dir, state_dict=cpu_state_dict)
+    else:
+        output_state_dict = {}
+        for k, v in model_to_save.named_parameters():
+            if hasattr(v, 'ds_id'):
+                with deepspeed.zero.GatheredParameters(_z3_params_to_fetch([v]), enabled=zero_stage_3):
+                    v_p = v.data.cpu()
+            else:
+                v_p = v.cpu()
+            if training_args.local_rank == 0 and "lora" not in k:
+                output_state_dict[k] = v_p
+
+        if training_args.local_rank == 0:
+            trainer._save(training_args.output_dir, state_dict=output_state_dict)
+            torch.distributed.barrier()
+        else:
+            torch.distributed.barrier()
+        del output_state_dict
 
 
 def preprocess(
@@ -441,7 +478,23 @@ def train():
     else:
         trainer.train()
     trainer.save_state()
-    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+
+    # two ways of saving weight and other things under deepspeed mode
+    # way1:
+    if trainer.hf_deepspeed_config_orig.is_zero3():
+        # use deepspeed engine internal function to gather state dict
+        # state_dict_zero3 contains whole parameters of base and lora adapters
+        # we will not extract lora parameters since peft save_pretrained will do that
+        # https://github.com/huggingface/peft/blob/3714aa2fff158fdfa637b2b65952580801d890b2/src/peft/peft_model.py#L125
+        # https://github.com/huggingface/peft/blob/3714aa2fff158fdfa637b2b65952580801d890b2/src/peft/utils/save_and_load.py#L19
+        state_dict_zero3 = trainer.model_wrapped._zero3_consolidated_16bit_state_dict()
+        if training_args.local_rank == 0:
+            state_dict = state_dict_zero3
+            trainer._save(training_args.output_dir, state_dict=state_dict)
+    else:
+        safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    # way2:
+    # save_zero_three_model(trainer, training_args, trainer.hf_deepspeed_config_orig.is_zero3())
 
 
 if __name__ == "__main__":
