@@ -18,7 +18,7 @@ python3 -m fastchat.serve.controller
 Then, launch the model worker(s)
 
 ```bash
-python3 -m fastchat.serve.model_worker --model-name 'vicuna-7b-v1.1' --model-path /path/to/vicuna/weights
+python3 -m fastchat.serve.model_worker --model-path lmsys/vicuna-7b-v1.3
 ```
 
 Finally, launch the RESTful API server
@@ -43,7 +43,7 @@ import openai
 openai.api_key = "EMPTY" # Not support yet
 openai.api_base = "http://localhost:8000/v1"
 
-model = "vicuna-7b-v1.1"
+model = "vicuna-7b-v1.3"
 prompt = "Once upon a time"
 
 # create a completion
@@ -75,7 +75,7 @@ Chat Completions:
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "vicuna-7b-v1.1",
+    "model": "vicuna-7b-v1.3",
     "messages": [{"role": "user", "content": "Hello! What is your name?"}]
   }'
 ```
@@ -85,7 +85,7 @@ Text Completions:
 curl http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "vicuna-7b-v1.1",
+    "model": "vicuna-7b-v1.3",
     "prompt": "Once upon a time",
     "max_tokens": 41,
     "temperature": 0.5
@@ -97,7 +97,7 @@ Embeddings:
 curl http://localhost:8000/v1/embeddings \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "vicuna-7b-v1.1",
+    "model": "vicuna-7b-v1.3",
     "input": "Hello world!"
   }'
 ```
@@ -105,8 +105,21 @@ curl http://localhost:8000/v1/embeddings \
 ## LangChain Support
 This OpenAI-compatible API server supports LangChain. See [LangChain Integration](langchain_integration.md) for details.
 
-## Adjusting Timeout
-By default, a timeout error will occur if a model worker does not response within 20 seconds. If your model/hardware is slower, you can change this timeout through an environment variable: `export FASTCHAT_WORKER_API_TIMEOUT=<larger timeout in seconds>`
+## Adjusting Environment Variables
+
+### Timeout
+By default, a timeout error will occur if a model worker does not response within 100 seconds. If your model/hardware is slower, you can change this timeout through an environment variable: 
+
+```bash
+export FASTCHAT_WORKER_API_TIMEOUT=<larger timeout in seconds>
+```
+
+### Batch size
+If you meet the following OOM error while creating embeddings. You can use a smaller batch size by setting
+
+```bash
+export FASTCHAT_WORKER_API_EMBEDDING_BATCH_SIZE=1
+```
 
 ## Todos
 Some features to be implemented:
