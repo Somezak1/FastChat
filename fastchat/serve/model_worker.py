@@ -65,17 +65,17 @@ def heart_beat_worker(controller):
 class ModelWorker:
     def __init__(
         self,
-        controller_addr,
-        worker_addr,
-        worker_id,
-        no_register,
-        model_path,
-        model_names,
-        device,
-        num_gpus,
-        max_gpu_memory,
-        load_8bit=False,
-        cpu_offloading=False,
+        controller_addr,  # "http://localhost:21001"
+        worker_addr,  # "http://localhost:21002"
+        worker_id,  # 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        no_register,  # False
+        model_path,  # '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        model_names,  # None
+        device,  # 'cuda'
+        num_gpus,  # 1
+        max_gpu_memory,  # None
+        load_8bit=False,  # False
+        cpu_offloading=False,  # False
         gptq_config=None,
     ):
         self.controller_addr = controller_addr
@@ -83,7 +83,7 @@ class ModelWorker:
         self.worker_id = worker_id
         if model_path.endswith("/"):
             model_path = model_path[:-1]
-        self.model_names = model_names or [model_path.split("/")[-1]]
+        self.model_names = model_names or [model_path.split("/")[-1]]  # ['output']
         self.device = device
 
         logger.info(f"Loading the model {self.model_names} on worker {worker_id} ...")
@@ -96,14 +96,14 @@ class ModelWorker:
             cpu_offloading,
             gptq_config,
         )
-        self.conv = get_conversation_template(model_path)
+        self.conv = get_conversation_template(model_path)  # Conversation(name="one_shot", ...)
         if self.tokenizer.pad_token == None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if hasattr(self.model.config, "max_sequence_length"):
             self.context_len = self.model.config.max_sequence_length
         elif hasattr(self.model.config, "max_position_embeddings"):
-            self.context_len = self.model.config.max_position_embeddings
+            self.context_len = self.model.config.max_position_embeddings  # 2048
         else:
             self.context_len = 2048
 
@@ -448,23 +448,23 @@ if __name__ == "__main__":
 
     gptq_config = GptqConfig(
         ckpt=args.gptq_ckpt or args.model_path,
-        wbits=args.gptq_wbits,
-        groupsize=args.gptq_groupsize,
-        act_order=args.gptq_act_order,
+        wbits=args.gptq_wbits,  # 16
+        groupsize=args.gptq_groupsize,  # -1
+        act_order=args.gptq_act_order,  # False
     )
 
     worker = ModelWorker(
-        args.controller_address,
-        args.worker_address,
-        worker_id,
-        args.no_register,
-        args.model_path,
-        args.model_names,
-        args.device,
-        args.num_gpus,
-        args.max_gpu_memory,
-        args.load_8bit,
-        args.cpu_offloading,
+        args.controller_address,  # "http://localhost:21001"
+        args.worker_address,  # "http://localhost:21002"
+        worker_id,  # 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        args.no_register,  # False
+        args.model_path,  # '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        args.model_names,  # None
+        args.device,  # 'cuda'
+        args.num_gpus,  # 1
+        args.max_gpu_memory,  # None
+        args.load_8bit,  # False
+        args.cpu_offloading,  # False
         gptq_config,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
