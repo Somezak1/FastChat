@@ -1,4 +1,5 @@
-# Adopted from tatsu-lab@stanford_alpaca. Below is the original copyright:
+# This code is based on tatsu-lab/stanford_alpaca. Below is the original copyright:
+#
 #    Copyright 2023 Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -193,7 +194,7 @@ def preprocess(
 
     assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
-    # Mask targets
+    # Mask targets. Only compute loss on the assistant outputs.
     sep = conv.sep + conv.roles[1] + ": "  # sep: ' ASSISTANT: '
     for conversation, target in zip(conversations, targets):
         # conversation:
@@ -216,7 +217,7 @@ def preprocess(
         #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         #          0, 0, 0, 0, 0, 0, 0, 0])
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+
         # tokenizer.pad_token_id: 0
         # target.ne(tokenizer.pad_token_id):
         # tensor([True, True, True, True, True, True, True, True, True, True,
@@ -234,29 +235,33 @@ def preprocess(
         #         False, False, False, False, False, False, False, False])
         # total_len: 88
 
-        rounds = conversation.split(conv.sep2)  # conv.sep2: '</s>'
+        turns = conversation.split(conv.sep2)  # conv.sep2: '</s>'
         cur_len = 1
         target[:cur_len] = IGNORE_TOKEN_ID  # IGNORE_TOKEN_ID: -100
-        for i, rou in enumerate(rounds):
-            # i=0  rou:
+        for i, turn in enumerate(turns):
+            # i=0  turn:
             # "A chat between a curious user and an artificial intelligence assistant.
             # The assistant gives helpful, detailed, and polite answers to the user's questions.
             # USER: Who are you? ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS)."
 
-            # i=1  rou: "USER: What can you do? ASSISTANT: I can chat with you."
+            # i=1  turn: "USER: What can you do? ASSISTANT: I can chat with you."
 
-            # i=2  rou: ""
-            if rou == "":
+            # i=2  turn: ""
+
+            if turn == "":
                 break
+            turn_len = len(tokenizer(turn).input_ids)
 
-            parts = rou.split(sep)  # sep: ' ASSISTANT: '
+            parts = turn.split(sep)  # sep: ' ASSISTANT: '
             if len(parts) != 2:
                 break
             parts[0] += sep  # parts[0]+parts[1]==rou
-            round_len = len(tokenizer(rou).input_ids)  # i=0  round_len: 67
+            # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2  # i=0  instruction_len: 42
 
+            # Ignore the user instructions
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
+            cur_len += turn_len
 
             # i=0
             # temp = tokenizer.tokenize(rou)
@@ -298,10 +303,9 @@ def preprocess(
             # YS 21554
             # ). 467
 
-            cur_len += round_len
         target[cur_len:] = IGNORE_TOKEN_ID
 
-        if False:
+        if False:  # Inspect and check the correctness of masking
             z = target.clone()
             z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.unk_token_id, z)
             rank0_print(tokenizer.decode(z))
