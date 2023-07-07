@@ -201,15 +201,24 @@ def main(args):
     try:
         chat_loop(
             args.model_path,
-            args.device,  # 'cuda'
-            args.num_gpus,  # 1
-            args.max_gpu_memory,  # None
-            args.load_8bit,  # False
-            args.cpu_offloading,  # False
-            args.conv_template,  # None
-            args.temperature,  # 默认是0.7, 但此处为了复现改为0
-            args.repetition_penalty,  # 1.0
-            args.max_new_tokens,  # 512
+            args.device,
+            # args.device: 'cuda'
+            args.num_gpus,
+            # args.num_gpus: 1
+            args.max_gpu_memory,
+            # args.max_gpu_memory: None
+            args.load_8bit,
+            # args.load_8bit: False
+            args.cpu_offloading,
+            # args.cpu_offloading: False
+            args.conv_template,
+            # args.conv_template: None
+            args.temperature,
+            # args.temperature: 默认是0.7, 但此处为了复现改为0
+            args.repetition_penalty,
+            # args.repetition_penalty: 1.0
+            args.max_new_tokens,
+            # args.max_new_tokens: 512
             chatio,
             GptqConfig(
                 ckpt=args.gptq_ckpt or args.model_path,
@@ -230,11 +239,13 @@ def main(args):
 if __name__ == "__main__":
     # 接受必要的参数信息
     parser = argparse.ArgumentParser()
-    add_model_args(parser)  # 额外添加一些预先设定好的模型相关参数
+    # 额外添加一些预先设定好的模型相关参数
+    add_model_args(parser)
     parser.add_argument(
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
-    parser.add_argument("--temperature", type=float, default=0)  # 温度参数改为0, 方便调试结果可复现
+    # 温度参数改为0, 方便调试结果可复现
+    parser.add_argument("--temperature", type=float, default=0)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--no-history", action="store_true")

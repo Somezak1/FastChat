@@ -14,10 +14,12 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+import copy
 from dataclasses import dataclass, field
 import json
 import pathlib
 from typing import Dict, Optional, Sequence
+
 import os
 import deepspeed
 from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
@@ -31,7 +33,8 @@ from transformers.trainer_pt_utils import LabelSmoother
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
-IGNORE_TOKEN_ID = LabelSmoother.ignore_index  # -100
+IGNORE_TOKEN_ID = LabelSmoother.ignore_index
+# IGNORE_TOKEN_ID: -100
 
 
 @dataclass
@@ -128,8 +131,10 @@ def preprocess(
         {'from': 'gpt', 'value': 'I can chat with you.'}
     ]]
     '''
-    conv = get_conversation_template("vicuna")  # Conversation(name='vicuna_v1.1', ...)
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}  # {"human": 'USER', "gpt": 'ASSISTANT'}
+    conv = get_conversation_template("vicuna")
+    # conv: Conversation(name='vicuna_v1.1', ...)
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    # roles: {"human": 'USER', "gpt": 'ASSISTANT'}
 
     # Apply prompt templates
     conversations = []
@@ -195,7 +200,8 @@ def preprocess(
     assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets. Only compute loss on the assistant outputs.
-    sep = conv.sep + conv.roles[1] + ": "  # sep: ' ASSISTANT: '
+    sep = conv.sep + conv.roles[1] + ": "
+    # sep: ' ASSISTANT: '
     for conversation, target in zip(conversations, targets):
         # conversation:
         # "A chat between a curious user and an artificial intelligence assistant.
@@ -218,6 +224,7 @@ def preprocess(
         #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         #          0, 0, 0, 0, 0, 0, 0, 0])
 
+        total_len = int(target.ne(tokenizer.pad_token_id).sum())
         # tokenizer.pad_token_id: 0
         # target.ne(tokenizer.pad_token_id):
         # tensor([True, True, True, True, True, True, True, True, True, True,
@@ -235,9 +242,11 @@ def preprocess(
         #         False, False, False, False, False, False, False, False])
         # total_len: 88
 
-        turns = conversation.split(conv.sep2)  # conv.sep2: '</s>'
+        turns = conversation.split(conv.sep2)
+        # conv.sep2: '</s>'
         cur_len = 1
-        target[:cur_len] = IGNORE_TOKEN_ID  # IGNORE_TOKEN_ID: -100
+        target[:cur_len] = IGNORE_TOKEN_ID
+        # IGNORE_TOKEN_ID: -100
         for i, turn in enumerate(turns):
             # i=0  turn:
             # "A chat between a curious user and an artificial intelligence assistant.
@@ -252,12 +261,15 @@ def preprocess(
                 break
             turn_len = len(tokenizer(turn).input_ids)
 
-            parts = turn.split(sep)  # sep: ' ASSISTANT: '
+            parts = turn.split(sep)
+            # sep: ' ASSISTANT: '
             if len(parts) != 2:
                 break
-            parts[0] += sep  # parts[0]+parts[1]==rou
+            parts[0] += sep
+            # parts[0]+parts[1]==rou
             # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
-            instruction_len = len(tokenizer(parts[0]).input_ids) - 2  # i=0  instruction_len: 42
+            instruction_len = len(tokenizer(parts[0]).input_ids) - 2
+            # i=0  instruction_len: 42
 
             # Ignore the user instructions
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
@@ -355,6 +367,8 @@ class LazySupervisedDataset(Dataset):
 
     def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDataset, self).__init__()
+        self.tokenizer = tokenizer
+
         rank0_print("Formatting inputs...Skip in lazy mode")
         self.tokenizer = tokenizer
         self.raw_data = raw_data
@@ -439,8 +453,10 @@ def make_supervised_data_module(
     split = int(len(perm) * 0.98)
     train_indices = perm[:split]
     eval_indices = perm[split:]
-    train_raw_data = [raw_data[i] for i in train_indices]  # [dict, dict, dict]
-    eval_raw_data = [raw_data[i] for i in eval_indices]  # [dict, dict, dict]
+    train_raw_data = [raw_data[i] for i in train_indices]
+    # train_raw_data: like [dict, dict, dict]
+    eval_raw_data = [raw_data[i] for i in eval_indices]
+    # eval_raw_data: like [dict, dict, dict]
     rank0_print(f"#train {len(train_raw_data)}, #eval {len(eval_raw_data)}")
 
     train_dataset = dataset_cls(train_raw_data, tokenizer=tokenizer)
@@ -464,11 +480,15 @@ def train():
     model.config.use_cache = False
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
-        cache_dir=training_args.cache_dir, # Path to a directory in which a downloaded pretrained model configuration
+        cache_dir=training_args.cache_dir,
+        # cache_dir: Path to a directory in which a downloaded pretrained model configuration
         # should be cached if the standard cache should not be used.
-        model_max_length=training_args.model_max_length,  # Will be passed to the Tokenizer __init__() method.
-        padding_side="right",  # Will be passed to the Tokenizer __init__() method.
-        use_fast=False, # Use a fast Rust-based tokenizer if it is supported for a given model.
+        model_max_length=training_args.model_max_length,
+        # model_max_length: Will be passed to the Tokenizer __init__() method.
+        padding_side="right",
+        # padding_side: Will be passed to the Tokenizer __init__() method.
+        use_fast=False,
+        # use_fast: Use a fast Rust-based tokenizer if it is supported for a given model.
         # If a fast tokenizer is not available for a given model, a normal Python-based tokenizer is returned instead.
     )
     tokenizer.pad_token = tokenizer.unk_token

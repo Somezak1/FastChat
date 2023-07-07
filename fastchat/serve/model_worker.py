@@ -60,11 +60,16 @@ def heart_beat_worker(obj):
 class BaseModelWorker:
     def __init__(
         self,
-        controller_addr: str,  # "http://localhost:21001"
-        worker_addr: str,  # "http://localhost:21002"
-        worker_id: str,  # 一个每次运行都不固定的字符串, 这里以'8c0542'举例
-        model_path: str,  # '/data/model_weights/OriginOne-13b-v1.7.6/output'
-        model_names: List[str],  # None
+        controller_addr: str,
+        # controller_addr: "http://localhost:21001"
+        worker_addr: str,
+        # worker_addr: "http://localhost:21002"
+        worker_id: str,
+        # worker_id: 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        model_path: str,
+        # model_path: '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        model_names: List[str],
+        # model_names: None
         limit_worker_concurrency: int,
     ):
         self.controller_addr = controller_addr
@@ -74,7 +79,9 @@ class BaseModelWorker:
             model_path = model_path[:-1]
         self.model_names = model_names or [model_path.split("/")[-1]]
         self.limit_worker_concurrency = limit_worker_concurrency
-        self.conv = get_conversation_template(model_path)  # Conversation(name="one_shot", ...)
+
+        self.conv = get_conversation_template(model_path)
+        # self.conv: Conversation(name="one_shot", ...)
         self.tokenizer = None
         self.context_len = None
         self.call_ct = 0
@@ -422,24 +429,38 @@ if __name__ == "__main__":
 
     gptq_config = GptqConfig(
         ckpt=args.gptq_ckpt or args.model_path,
-        wbits=args.gptq_wbits,  # 16
-        groupsize=args.gptq_groupsize,  # -1
-        act_order=args.gptq_act_order,  # False
+        wbits=args.gptq_wbits,
+        # args.gptq_wbits: 16
+        groupsize=args.gptq_groupsize,
+        # args.gptq_groupsize: -1
+        act_order=args.gptq_act_order,
+        # args.gptq_act_order: False
     )
 
     worker = ModelWorker(
-        args.controller_address,  # "http://localhost:21001"
-        args.worker_address,  # "http://localhost:21002"
-        worker_id,  # 一个每次运行都不固定的字符串, 这里以'8c0542'举例
-        args.model_path,  # '/data/model_weights/OriginOne-13b-v1.7.6/output'
-        args.model_names,  # None
+        args.controller_address,
+        # args.controller_address: "http://localhost:21001"
+        args.worker_address,
+        # args.worker_address: "http://localhost:21002"
+        worker_id,
+        # worker_id: 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        args.model_path,
+        # args.model_path: '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        args.model_names,
+        # args.model_names: None
         args.limit_worker_concurrency,
-        no_register=args.no_register,  # False
-        device=args.device,  # 'cuda'
-        num_gpus=args.num_gpus,  # 1
-        max_gpu_memory=args.max_gpu_memory,  # None
-        load_8bit=args.load_8bit,  # False
-        cpu_offloading=args.cpu_offloading,  # False
+        no_register=args.no_register,
+        # args.no_register: False
+        device=args.device,
+        # args.device: 'cuda'
+        num_gpus=args.num_gpus,
+        # args.num_gpus: 1
+        max_gpu_memory=args.max_gpu_memory,
+        # args.max_gpu_memory: None
+        load_8bit=args.load_8bit,
+        # args.load_8bit: False
+        cpu_offloading=args.cpu_offloading,
+        # args.cpu_offloading: False
         gptq_config=gptq_config,
         stream_interval=args.stream_interval,
     )

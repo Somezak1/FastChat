@@ -98,15 +98,24 @@ def generate_stream(
     # Read parameters
     prompt = params["prompt"]
     len_prompt = len(prompt)
-    temperature = float(params.get("temperature", 1.0))  # 默认是0.7, 但此处为了复现改为0
-    repetition_penalty = float(params.get("repetition_penalty", 1.0))  # repetition_penalty: 1.0
-    top_p = float(params.get("top_p", 1.0))  # top_p: 1.0
-    top_k = int(params.get("top_k", -1))  # top_k: -1 means disable
-    max_new_tokens = int(params.get("max_new_tokens", 256))  # max_new_tokens: 512
-    echo = bool(params.get("echo", True))  # echo: False
-    stop_str = params.get("stop", None)  # stop_str: '###'
-    stop_token_ids = params.get("stop_token_ids", None) or []  # stop_token_ids: [2]
-    stop_token_ids.append(tokenizer.eos_token_id)  # tokenizer.eos_token_id: 2
+    temperature = float(params.get("temperature", 1.0))
+    # temperature默认是0.7, 但此处为了复现改为0
+    repetition_penalty = float(params.get("repetition_penalty", 1.0))
+    # repetition_penalty: 1.0
+    top_p = float(params.get("top_p", 1.0))
+    # top_p: 1.0
+    top_k = int(params.get("top_k", -1))  # -1 means disable
+    # top_k: -1
+    max_new_tokens = int(params.get("max_new_tokens", 256))
+    # max_new_tokens: 512
+    echo = bool(params.get("echo", True))
+    # echo: False
+    stop_str = params.get("stop", None)
+    # stop_str: '###'
+    stop_token_ids = params.get("stop_token_ids", None) or []
+    # stop_token_ids: [2]
+    stop_token_ids.append(tokenizer.eos_token_id)
+    # tokenizer.eos_token_id: 2
 
     logits_processor = prepare_logits_processor(
         temperature, repetition_penalty, top_p, top_k
@@ -140,10 +149,12 @@ def generate_stream(
     #     "vocab_size": 32000
     # }
 
-    if model.config.is_encoder_decoder:  # model.config.is_encoder_decoder: False
+    # model.config.is_encoder_decoder: False
+    if model.config.is_encoder_decoder:
         max_src_len = context_len
     else:  # truncate
-        max_src_len = context_len - max_new_tokens - 8  # max_src_len: 1528  模型能够接受的最长输入序列的长度
+        max_src_len = context_len - max_new_tokens - 8
+        # max_src_len: 1528  模型能够接受的最长输入序列的长度
 
     input_ids = input_ids[-max_src_len:]
     input_echo_len = len(input_ids)
@@ -160,7 +171,8 @@ def generate_stream(
 
     past_key_values = out = None
     sent_interrupt = False
-    for i in range(max_new_tokens):  # 模型在一次回答中能够输出的最长回答是512个token
+    for i in range(max_new_tokens):
+        # 模型在一次回答中能够输出的最长回答是512个token
         if i == 0:  # prefill
             if model.config.is_encoder_decoder:
                 out = model.decoder(
@@ -170,10 +182,14 @@ def generate_stream(
                 )
                 logits = model.lm_head(out[0])
             else:
-                out = model(torch.as_tensor([input_ids], device=device), use_cache=True)  # input shape: (1, 404)
-                logits = out.logits  # logits shape: (1, 404, 32000), 404是当前prompt的token数量
-            past_key_values = out.past_key_values  # ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第一次循环时tensor shape: (1, 32, 404, 128)
-        else:  # decoding, 非首次进入
+                out = model(torch.as_tensor([input_ids], device=device), use_cache=True)
+                # input shape: (1, 404)
+                logits = out.logits
+                # logits shape: (1, 404, 32000), 404是当前prompt的token数量
+            past_key_values = out.past_key_values
+            # past_key_values: ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第一次循环时tensor shape: (1, 32, 404, 128)
+        else:  # decoding
+            # 非首次进入
             if model.config.is_encoder_decoder:
                 out = model.decoder(
                     input_ids=torch.as_tensor(
@@ -195,15 +211,19 @@ def generate_stream(
                     past_key_values=past_key_values if not sent_interrupt else None,
                 )
                 sent_interrupt = False
-                logits = out.logits  # logits shape: (1, 1, 32000)
-            past_key_values = out.past_key_values  # ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第二次循环时tensor shape: (1, 32, 405, 128)
+                logits = out.logits
+                # logits shape: (1, 1, 32000)
+            past_key_values = out.past_key_values
+            # past_key_values： ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第二次循环时tensor shape: (1, 32, 405, 128)
 
         if logits_processor:
-            if repetition_penalty > 1.0:  # repetition_penalty: 1.0
+            if repetition_penalty > 1.0:
+                # repetition_penalty: 1.0
                 tmp_output_ids = torch.as_tensor([output_ids], device=logits.device)
             else:
                 tmp_output_ids = None
-            last_token_logits = logits_processor(tmp_output_ids, logits[:, -1, :])[0]  # last_token_logits shape: (32000, )
+            last_token_logits = logits_processor(tmp_output_ids, logits[:, -1, :])[0]
+            # last_token_logits shape: (32000, )
         else:
             last_token_logits = logits[0, -1, :]
 
@@ -221,14 +241,17 @@ def generate_stream(
         token = tokens[0]
         output_ids.append(token)
 
-        if token in stop_token_ids:  # stop_token_ids: [2]
+        if token in stop_token_ids:
+            # stop_token_ids: [2]
             stopped = True
         else:
             stopped = False
 
         # Yield the output tokens
-        if i % stream_interval == 0 or i == max_new_tokens - 1 or stopped:  # stream_interval: 2
-            if echo:  # False
+        if i % stream_interval == 0 or i == max_new_tokens - 1 or stopped:
+            # stream_interval: 2
+            if echo:
+                # echo: False
                 tmp_output_ids = output_ids
                 rfind_start = len_prompt
             else:
@@ -252,9 +275,11 @@ def generate_stream(
                 sent_interrupt = True
 
             partially_stopped = False
-            if stop_str:  # stop_str: '###'
+            if stop_str:
+                # stop_str: '###'
                 if isinstance(stop_str, str):
-                    pos = output.rfind(stop_str, rfind_start)  # rfind_start: 0
+                    pos = output.rfind(stop_str, rfind_start)
+                    # rfind_start: 0
                     if pos != -1:
                         output = output[:pos]
                         stopped = True
@@ -329,20 +354,30 @@ class ChatIO(abc.ABC):
 
 def chat_loop(
     model_path: str,
-    device: str,  # 'cuda'
-    num_gpus: int,  # 1
-    max_gpu_memory: str,  # None
-    load_8bit: bool,  # False
-    cpu_offloading: bool,  # False
-    conv_template: Optional[str],  # None
-    temperature: float,  # 默认是0.7, 但此处为了复现改为0
-    repetition_penalty: float,  # 1.0
-    max_new_tokens: int,  # 512
+    device: str,
+    # device: 'cuda'
+    num_gpus: int,
+    # num_gpus: 1
+    max_gpu_memory: str,
+    # max_gpu_memory: None
+    load_8bit: bool,
+    # load_8bit: False
+    cpu_offloading: bool,
+    # cpu_offloading: False
+    conv_template: Optional[str],
+    # conv_template: None
+    temperature: float,
+    # temperature: 默认是0.7, 但此处为了复现改为0
+    repetition_penalty: float,
+    # repetition_penalty: 1.0
+    max_new_tokens: int,
+    # max_new_tokens: 512
     chatio: ChatIO,
     gptq_config: GptqConfig,
     revision: str,
     judge_sent_end: bool,
-    debug: bool,  # False
+    debug: bool,
+    # debug: False
     history: bool = True,
 ):
     # Model
@@ -424,7 +459,8 @@ def chat_loop(
             conv = new_chat()
 
         try:
-            inp = chatio.prompt_for_input(conv.roles[0])  # roles: ("Human", "Assistant")  # 手动输入: 'Who are you'
+            inp = chatio.prompt_for_input(conv.roles[0])
+            # roles: ("Human", "Assistant")  # 手动输入: 'Who are you'
         except EOFError:
             inp = ""
 
@@ -462,8 +498,10 @@ def chat_loop(
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
             "max_new_tokens": max_new_tokens,
-            "stop": conv.stop_str,  # stop_str: "###",
-            "stop_token_ids": conv.stop_token_ids,  # stop_token_ids: None
+            "stop": conv.stop_str,
+            # stop_str: "###",
+            "stop_token_ids": conv.stop_token_ids,
+            # stop_token_ids: None
             "echo": False,
         }
 

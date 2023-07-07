@@ -125,14 +125,20 @@ def raise_warning_for_incompatible_cpu_offloading_configuration(
 
 def load_model(
     model_path: str,
-    device: str,  # 'cuda'
-    num_gpus: int,  # 1
-    max_gpu_memory: Optional[str] = None,  # None
-    load_8bit: bool = False,  # False
-    cpu_offloading: bool = False,  # False
+    device: str,
+    # device: 'cuda'
+    num_gpus: int,
+    # num_gpus: 1
+    max_gpu_memory: Optional[str] = None,
+    # max_gpu_memory: None
+    load_8bit: bool = False,
+    # load_8bit: False
+    cpu_offloading: bool = False,
+    # cpu_offloading: False
     gptq_config: Optional[GptqConfig] = None,
     revision: str = "main",
-    debug: bool = False,  # False
+    debug: bool = False,
+    # debug: False
 ):
     """Load a model from Hugging Face."""
 
@@ -218,7 +224,8 @@ def load_model(
     kwargs["revision"] = revision
 
     # Load model
-    adapter = get_model_adapter(model_path)  # BaseAdapter
+    adapter = get_model_adapter(model_path)
+    # adapter: BaseAdapter
     model, tokenizer = adapter.load_model(model_path, kwargs)
 
     if (device == "cuda" and num_gpus == 1 and not cpu_offloading) or device == "mps":
