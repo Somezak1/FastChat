@@ -354,6 +354,7 @@ class ChatIO(abc.ABC):
 
 def chat_loop(
     model_path: str,
+    # model_path: /data1/csw_model_weights/OriginOne or /data1/csw_model_weights/vicuna-7b-v1.3
     device: str,
     # device: 'cuda'
     num_gpus: int,
@@ -373,12 +374,16 @@ def chat_loop(
     max_new_tokens: int,
     # max_new_tokens: 512
     chatio: ChatIO,
+    # chatio: SimpleChatIO
     gptq_config: GptqConfig,
     revision: str,
+    # revision: 'main'
     judge_sent_end: bool,
+    # judge_sent_end: False
     debug: bool,
     # debug: False
     history: bool = True,
+    # history: True
 ):
     # Model
     model, tokenizer = load_model(
@@ -393,6 +398,9 @@ def chat_loop(
         debug,
     )
     generate_stream_func = get_generate_stream_function(model, model_path)
+    # 只要模型不是chatglm/falcon/codet5p, 那么generate_stream_func就是generate_stream
+    # if model_path == /data1/csw_model_weights/OriginOne, generate_stream_func: fastchat.serve.inference.generate_stream
+    # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, generate_stream_func: fastchat.serve.inference.generate_stream
 
     model_type = str(type(model)).lower()
     is_t5 = "t5" in model_type
@@ -404,63 +412,70 @@ def chat_loop(
 
     # Set context length
     context_len = get_context_length(model.config)
+    # context_len: 2048
 
     # Chat
     def new_chat():
-        # Chat, 根据模型权重路径的名称, 获取一个与之匹配的Conversation模板
         if conv_template:
             conv = get_conv_template(conv_template)
+            # 根据conv_template, 获取指定模板
         else:
             conv = get_conversation_template(model_path)
+            # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
         return conv
 
     conv = None
-    # 由于调试时使用的权重路径名称是llama, 所以匹配到如下的Conversation对象
-    # Conversation(
-    #     name="one_shot",
-    #     system="A chat between a curious human and an artificial intelligence assistant. "
-    #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
-    #     roles=("Human", "Assistant"),
-    #     messages=(
-    #         (
-    #             "Human",
-    #             "What are the key differences between renewable and non-renewable energy sources?",
-    #         ),
-    #         (
-    #             "Assistant",
-    #             "Renewable energy sources are those that can be replenished naturally in a relatively "
-    #             "short amount of time, such as solar, wind, hydro, geothermal, and biomass. "
-    #             "Non-renewable energy sources, on the other hand, are finite and will eventually be "
-    #             "depleted, such as coal, oil, and natural gas. Here are some key differences between "
-    #             "renewable and non-renewable energy sources:\n"
-    #             "1. Availability: Renewable energy sources are virtually inexhaustible, while non-renewable "
-    #             "energy sources are finite and will eventually run out.\n"
-    #             "2. Environmental impact: Renewable energy sources have a much lower environmental impact "
-    #             "than non-renewable sources, which can lead to air and water pollution, greenhouse gas emissions, "
-    #             "and other negative effects.\n"
-    #             "3. Cost: Renewable energy sources can be more expensive to initially set up, but they typically "
-    #             "have lower operational costs than non-renewable sources.\n"
-    #             "4. Reliability: Renewable energy sources are often more reliable and can be used in more remote "
-    #             "locations than non-renewable sources.\n"
-    #             "5. Flexibility: Renewable energy sources are often more flexible and can be adapted to different "
-    #             "situations and needs, while non-renewable sources are more rigid and inflexible.\n"
-    #             "6. Sustainability: Renewable energy sources are more sustainable over the long term, while "
-    #             "non-renewable sources are not, and their depletion can lead to economic and social instability.",
-    #         ),
-    #     ),
-    #     offset=2,
-    #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
-    #     sep="\n### ",
-    #     stop_str="###",
-    # )
 
     while True:
         if not history or not conv:
             conv = new_chat()
+            # if model_path == /data1/csw_model_weights/OriginOne, conv:
+            # Conversation(
+            #     name="one_shot",
+            #     system="A chat between a curious human and an artificial intelligence assistant. "
+            #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+            #     roles=("Human", "Assistant"),
+            #     messages=(
+            #         (
+            #             "Human",
+            #             "Got any creative ideas for a 10 year old’s birthday?",
+            #         ),
+            #         (
+            #             "Assistant",
+            #             """Of course! Here are some creative ideas for a 10-year-old's birthday party:
+            # 1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.
+            # 2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.
+            # 3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.
+            # 4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.
+            # 5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.
+            # 6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.
+            # 7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.
+            # 8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.
+            # Remember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!""",
+            #         ),
+            #     ),
+            #     offset=2,
+            #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
+            #     sep="\n### ",
+            #     stop_str="###",
+            # )
+
+            # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
+            # Conversation(
+            #     name="vicuna_v1.1",
+            #     system="A chat between a curious user and an artificial intelligence assistant. "
+            #     "The assistant gives helpful, detailed, and polite answers to the user's questions.",
+            #     roles=("USER", "ASSISTANT"),
+            #     messages=(),
+            #     offset=0,
+            #     sep_style=SeparatorStyle.ADD_COLON_TWO,
+            #     sep=" ",
+            #     sep2="</s>",
+            # )
 
         try:
             inp = chatio.prompt_for_input(conv.roles[0])
-            # roles: ("Human", "Assistant")  # 手动输入: 'Who are you'
+            # 手动输入: 'Who are you'
         except EOFError:
             inp = ""
 
@@ -476,30 +491,33 @@ def chat_loop(
         conv.append_message(conv.roles[0], inp)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
+        # if model_path == /data1/csw_model_weights/OriginOne, conv.roles[0]: "Human", conv.roles[1]: "Assistant", prompt:
+        # "A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions.\n### Human: Got any creative ideas for a 10 year old’s birthday?\n### Assistant: Of course! Here are some creative ideas for a 10-year-old's birthday party:\n1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.\n2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.\n3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.\n4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.\n5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.\n6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.\n7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.\n8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.\nRemember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!\n### Human: Who are you\n### Assistant:"
+        # prompt拼接模板:
+        #   第一次交互时: "{prompt}\n### {Human: Q1}\n### {Assistant:}"
+        #   第二次交互时: "{prompt}\n### {Human: Q1}\n### {Assistant: A1}\n### {Human: Q2}\n### {Assistant:}"
+        #   第三次交互时: "{prompt}\n### {Human: Q1}\n### {Assistant: A1}\n### {Human: Q2}\n### {Assistant: A2}\n### {Human: Q3}\n### {Assistant:}"
+
+        # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv.roles[0]: "USER", conv.roles[1]: "ASSISTANT", prompt:
+        # "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Who are you ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).</s>USER: Who developed you? ASSISTANT: My creators are researchers from Large Model Systems Organization (LMSYS).</s>USER: Where is China? ASSISTANT:"
+        # prompt拼接模板:
+        #   第一次交互时: "{prompt} {User: Q1} {Assistant:}"
+        #   第二次交互时: "{prompt} {User: Q1} {Assistant: A1}</s>{User: Q2} {Assistant:}"
+        #   第三次交互时: "{prompt} {User: Q1} {Assistant: A1}</s>{User: Q2} {Assistant: A2}</s>{User: Q3} {Assistant:}"
 
         if is_codet5p:  # codet5p is a code completion model.
             prompt = inp
 
-        # 首次循环时prompt如下
-        "A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions."
-        "### Human: What are the key differences between renewable and non-renewable energy sources?"
-        "### Assistant: Renewable energy sources are those that can be replenished naturally in a relatively short amount of time, such as solar, wind, hydro, geothermal, and biomass. Non-renewable energy sources, on the other hand, are finite and will eventually be depleted, such as coal, oil, and natural gas. Here are some key differences between renewable and non-renewable energy sources:"
-        "1. Availability: Renewable energy sources are virtually inexhaustible, while non-renewable energy sources are finite and will eventually run out."
-        "2. Environmental impact: Renewable energy sources have a much lower environmental impact than non-renewable sources, which can lead to air and water pollution, greenhouse gas emissions, and other negative effects."
-        "3. Cost: Renewable energy sources can be more expensive to initially set up, but they typically have lower operational costs than non-renewable sources."
-        "4. Reliability: Renewable energy sources are often more reliable and can be used in more remote locations than non-renewable sources."
-        "5. Flexibility: Renewable energy sources are often more flexible and can be adapted to different situations and needs, while non-renewable sources are more rigid and inflexible."
-        "6. Sustainability: Renewable energy sources are more sustainable over the long term, while non-renewable sources are not, and their depletion can lead to economic and social instability."
-        "### Human: Who are you"
-        "### Assistant:"
         gen_params = {
             "model": model_path,
             "prompt": prompt,
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
+            # repetition_penalty: 1.0
             "max_new_tokens": max_new_tokens,
+            # max_new_tokens: 512
             "stop": conv.stop_str,
-            # stop_str: "###",
+            # stop_str: None
             "stop_token_ids": conv.stop_token_ids,
             # stop_token_ids: None
             "echo": False,

@@ -52,16 +52,25 @@ class SimpleChatIO(ChatIO):
     def stream_output(self, output_stream):
         pre = 0
         for outputs in output_stream:
+            # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 历次的outputs:
             '''
-            若问模型: 'Who are you', 则返回的output_stream里有如下7个元素
-            0  outputs["text"]: 'I'    outputs["finish_reason"]: None
-            1  outputs["text"]: 'I am an'    outputs["finish_reason"]: None
-            2  outputs["text"]: 'I am an artificial intelligence'    outputs["finish_reason"]: None
-            3  outputs["text"]: 'I am an artificial intelligence assistant.'    outputs["finish_reason"]: None
-            4  outputs["text"]: 'I am an artificial intelligence assistant.\n##'    outputs["finish_reason"]: None
-            5  outputs["text"]: 'I am an artificial intelligence assistant.\n'    outputs["finish_reason"]: None
-            6  outputs["text"]: 'I am an artificial intelligence assistant.\n'    outputs["finish_reason"]: stop
+            {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
+            {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
+            {'text': 'I am Vicuna,', 'usage': {'prompt_tokens': 42, 'completion_tokens': 4, 'total_tokens': 46}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language', 'usage': {'prompt_tokens': 42, 'completion_tokens': 6, 'total_tokens': 48}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained', 'usage': {'prompt_tokens': 42, 'completion_tokens': 8, 'total_tokens': 50}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by research', 'usage': {'prompt_tokens': 42, 'completion_tokens': 10, 'total_tokens': 52}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from', 'usage': {'prompt_tokens': 42, 'completion_tokens': 12, 'total_tokens': 54}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large', 'usage': {'prompt_tokens': 42, 'completion_tokens': 14, 'total_tokens': 56}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems', 'usage': {'prompt_tokens': 42, 'completion_tokens': 16, 'total_tokens': 58}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization', 'usage': {'prompt_tokens': 42, 'completion_tokens': 18, 'total_tokens': 60}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (L', 'usage': {'prompt_tokens': 42, 'completion_tokens': 20, 'total_tokens': 62}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS', 'usage': {'prompt_tokens': 42, 'completion_tokens': 22, 'total_tokens': 64}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': None}
+            {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': 'stop'}
             '''
+            # output_text: "I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS)."
+
             output_text = outputs["text"]
             output_text = output_text.strip().split(" ")
             now = len(output_text) - 1
@@ -191,6 +200,7 @@ def main(args):
 
     if args.style == "simple":
         # args.style: simple
+        # args.multiline: False
         chatio = SimpleChatIO(args.multiline)
     elif args.style == "rich":
         chatio = RichChatIO(args.multiline, args.mouse)
@@ -201,6 +211,7 @@ def main(args):
     try:
         chat_loop(
             args.model_path,
+            # args.model_path: /data1/csw_model_weights/OriginOne or /data1/csw_model_weights/vicuna-7b-v1.3
             args.device,
             # args.device: 'cuda'
             args.num_gpus,
@@ -222,21 +233,33 @@ def main(args):
             chatio,
             GptqConfig(
                 ckpt=args.gptq_ckpt or args.model_path,
+                # args.gptq_ckpt: None
                 wbits=args.gptq_wbits,
+                # args.gptq_wbits: 16
                 groupsize=args.gptq_groupsize,
+                # args.gptq_groupsize: -1
                 act_order=args.gptq_act_order,
+                # args.gptq_act_order: False
             ),
             args.revision,
+            # args.revision: 'main'
             args.judge_sent_end,
+            # args.judge_sent_end: False
             args.debug,
             # args.debug: False
             history=not args.no_history,
+            # args.no_history: False
         )
     except KeyboardInterrupt:
         print("exit...")
 
 
 if __name__ == "__main__":
+    # debug代码
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/
+    # or
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/
+
     # 接受必要的参数信息
     parser = argparse.ArgumentParser()
     # 额外添加一些预先设定好的模型相关参数

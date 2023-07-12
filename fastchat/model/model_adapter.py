@@ -125,6 +125,7 @@ def raise_warning_for_incompatible_cpu_offloading_configuration(
 
 def load_model(
     model_path: str,
+    # model_path: /data1/csw_model_weights/OriginOne or /data1/csw_model_weights/vicuna-7b-v1.3
     device: str,
     # device: 'cuda'
     num_gpus: int,
@@ -137,6 +138,7 @@ def load_model(
     # cpu_offloading: False
     gptq_config: Optional[GptqConfig] = None,
     revision: str = "main",
+    # revision: 'main'
     debug: bool = False,
     # debug: False
 ):
@@ -144,6 +146,8 @@ def load_model(
 
     # get model adapter
     adapter = get_model_adapter(model_path)
+    # if model_path == /data1/csw_model_weights/OriginOne, adapter: fastchat.model.model_adapter.BaseModelAdapter
+    # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, adapter: fastchat.model.model_adapter.VicunaAdapter
 
     # Handle device mapping
     # cpu offload, 只能在linux系统的gpu上借助load_8bit才能使用
@@ -225,7 +229,8 @@ def load_model(
 
     # Load model
     adapter = get_model_adapter(model_path)
-    # adapter: BaseAdapter
+    # if model_path == /data1/csw_model_weights/OriginOne, adapter: fastchat.model.model_adapter.BaseModelAdapter
+    # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, adapter: fastchat.model.model_adapter.VicunaAdapter
     model, tokenizer = adapter.load_model(model_path, kwargs)
 
     if (device == "cuda" and num_gpus == 1 and not cpu_offloading) or device == "mps":

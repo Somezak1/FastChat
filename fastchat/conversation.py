@@ -46,11 +46,23 @@ class Conversation:
     # Stops generation if meeting any token in this list
     stop_token_ids: List[int] = None
 
-    # Conversation(name="one_shot", ...)
-    # offset = 2,
-    # sep_style = SeparatorStyle.ADD_COLON_SINGLE,
-    # sep = "\n### ",
-    # stop_str = "###",
+    # Conversation(
+    #     name="one_shot",
+    #     ...,
+    #     offset=2,
+    #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
+    #     sep="\n### ",
+    #     stop_str="###",
+    # )
+
+    # Conversation(
+    #     name="vicuna_v1.1",
+    #     ...,
+    #     offset=0,
+    #     sep_style=SeparatorStyle.ADD_COLON_TWO,
+    #     sep=" ",
+    #     sep2="</s>",
+    # )
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
