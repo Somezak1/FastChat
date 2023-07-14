@@ -54,8 +54,13 @@ class WorkerInfo:
 
 
 def heart_beat_controller(controller):
+    '''
+    每隔90秒, 遍历一次controller.worker_info(controller中所有登记过的worker), 若该worker在过去90秒内与controller没通信过
+    则从controller.worker_info中删除该worker
+    '''
     while True:
         time.sleep(CONTROLLER_HEART_BEAT_EXPIRATION)
+        # CONTROLLER_HEART_BEAT_EXPIRATION: 90
         controller.remove_stable_workers_by_expiration()
 
 
@@ -64,15 +69,25 @@ class Controller:
         # Dict[str -> WorkerInfo]
         self.worker_info = {}
         self.dispatch_method = DispatchMethod.from_str(dispatch_method)
+        # self.dispatch_method: DispatchMethod.SHORTEST_QUEUE
+        # 该值用于get_worker_address
 
         self.heart_beat_thread = threading.Thread(
             target=heart_beat_controller, args=(self,)
         )
         self.heart_beat_thread.start()
+        # 开启一个独立的线程, 专门用于监控controller与各worker之间的通信状态
 
     def register_worker(
         self, worker_name: str, check_heart_beat: bool, worker_status: dict
     ):
+        # worker_name: 'http://{worker_ip}:21002'
+        # check_heart_beat: True
+        # worker_status: {
+        #    "model_names": 'vicuna-7b-v1.3',
+        #    "speed": 1,
+        #    "queue_length": 0,
+        # }
         if worker_name not in self.worker_info:
             logger.info(f"Register a new worker: {worker_name}")
         else:
@@ -115,6 +130,8 @@ class Controller:
         self.worker_info = {}
 
         for w_name, w_info in old_info.items():
+            # w_name: 'http://{worker_ip}:21002'
+            # w_info: WorkerInfo(...) obj
             if not self.register_worker(w_name, w_info.check_heart_beat, None):
                 logger.info(f"Remove stale worker: {w_name}")
 
@@ -191,9 +208,13 @@ class Controller:
 
     def remove_stable_workers_by_expiration(self):
         expire = time.time() - CONTROLLER_HEART_BEAT_EXPIRATION
+        # CONTROLLER_HEART_BEAT_EXPIRATION: 90
         to_delete = []
         for worker_name, w_info in self.worker_info.items():
+            # worker_name: 'http://{worker_ip}:21002'
+            # w_info: WorkerInfo(...)对象
             if w_info.check_heart_beat and w_info.last_heart_beat < expire:
+                # w_info.check_heart_beat: True
                 to_delete.append(worker_name)
 
         for worker_name in to_delete:
@@ -236,7 +257,18 @@ class Controller:
         }
 
     def worker_api_generate_stream(self, params):
+        # params:
+        # {
+        #     'model': 'vicuna-7b-v1.3',
+        #     'prompt': "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Tell me a story with more than 1000 words. ASSISTANT:",
+        #     'temperature': 0.0,
+        #     'max_new_tokens': 32,
+        #     'stop': None,
+        #     'stop_token_ids': None,
+        #     'echo': False
+        # }
         worker_addr = self.get_worker_address(params["model"])
+        # worker_addr: 'http://{worker_ip}:21002'
         if not worker_addr:
             yield self.handle_no_worker(params)
 
@@ -246,6 +278,7 @@ class Controller:
                 json=params,
                 stream=True,
                 timeout=WORKER_API_TIMEOUT,
+                # WORKER_API_TIMEOUT: 100
             )
             for chunk in response.iter_lines(decode_unicode=False, delimiter=b"\0"):
                 if chunk:
@@ -263,6 +296,13 @@ async def register_worker(request: Request):
     controller.register_worker(
         data["worker_name"], data["check_heart_beat"], data.get("worker_status", None)
     )
+    # data["worker_name"]: 'http://{worker_ip}:21002'
+    # data["check_heart_beat"]: True
+    # data.get("worker_status", None): {
+    #    "model_names": 'vicuna-7b-v1.3',
+    #    "speed": 1,
+    #    "queue_length": 0,
+    # }
 
 
 @app.post("/refresh_all_workers")
@@ -287,6 +327,8 @@ async def get_worker_address(request: Request):
 async def receive_heart_beat(request: Request):
     data = await request.json()
     exist = controller.receive_heart_beat(data["worker_name"], data["queue_length"])
+    # data["worker_name"]: 'http://{worker_ip}:21002'
+    # data["queue_length"]: 0
     return {"exist": exist}
 
 
@@ -314,6 +356,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     logger.info(f"args: {args}")
+    # args: Namespace(host='localhost', port=21001, dispatch_method='shortest_queue')
 
     controller = Controller(args.dispatch_method)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

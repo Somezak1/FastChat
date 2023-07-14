@@ -61,16 +61,17 @@ class BaseModelWorker:
     def __init__(
         self,
         controller_addr: str,
-        # controller_addr: "http://localhost:21001"
+        # controller_addr: "http://{controller_ip}:21001"
         worker_addr: str,
-        # worker_addr: "http://localhost:21002"
+        # worker_addr: "http://{worker_ip}:21002"
         worker_id: str,
-        # worker_id: 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        # worker_id: 一个每次运行都不固定的字符串, 这里以'e73850d4'举例
         model_path: str,
-        # model_path: '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        # model_path: '/data1/csw_model_weights/vicuna-7b-v1.3'
         model_names: List[str],
         # model_names: None
         limit_worker_concurrency: int,
+        # limit_worker_concurrency: 5
     ):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
@@ -81,7 +82,50 @@ class BaseModelWorker:
         self.limit_worker_concurrency = limit_worker_concurrency
 
         self.conv = get_conversation_template(model_path)
-        # self.conv: Conversation(name="one_shot", ...)
+        # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
+        # if model_path == /data1/csw_model_weights/OriginOne, conv:
+        # Conversation(
+        #     name="one_shot",
+        #     system="A chat between a curious human and an artificial intelligence assistant. "
+        #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+        #     roles=("Human", "Assistant"),
+        #     messages=(
+        #         (
+        #             "Human",
+        #             "Got any creative ideas for a 10 year old’s birthday?",
+        #         ),
+        #         (
+        #             "Assistant",
+        #             """Of course! Here are some creative ideas for a 10-year-old's birthday party:
+        # 1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.
+        # 2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.
+        # 3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.
+        # 4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.
+        # 5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.
+        # 6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.
+        # 7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.
+        # 8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.
+        # Remember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!""",
+        #         ),
+        #     ),
+        #     offset=2,
+        #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
+        #     sep="\n### ",
+        #     stop_str="###",
+        # )
+
+        # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
+        # Conversation(
+        #     name="vicuna_v1.1",
+        #     system="A chat between a curious user and an artificial intelligence assistant. "
+        #     "The assistant gives helpful, detailed, and polite answers to the user's questions.",
+        #     roles=("USER", "ASSISTANT"),
+        #     messages=(),
+        #     offset=0,
+        #     sep_style=SeparatorStyle.ADD_COLON_TWO,
+        #     sep=" ",
+        #     sep2="</s>",
+        # )
         self.tokenizer = None
         self.context_len = None
         self.call_ct = 0
@@ -100,10 +144,17 @@ class BaseModelWorker:
         logger.info("Register to controller")
 
         url = self.controller_addr + "/register_worker"
+        # url: 'http://{controller_ip}:21001/register_worker'
         data = {
             "worker_name": self.worker_addr,
             "check_heart_beat": True,
             "worker_status": self.get_status(),
+            # self.get_status():
+            # {
+            #   "model_names": 'vicuna-7b-v1.3',
+            #   "speed": 1,
+            #   "queue_length": 0,
+            # }
         }
         r = requests.post(url, json=data)
         assert r.status_code == 200
@@ -115,8 +166,10 @@ class BaseModelWorker:
             f"call_ct: {self.call_ct}. "
             f"worker_id: {self.worker_id}. "
         )
+        # 'Send heart beat. Models: ['vicuna-7b-v1.3']. Semaphore: None. call_ct: 0. worker_id: e73850d4.'
 
         url = self.controller_addr + "/receive_heart_beat"
+        # url: 'http://{controller_ip}:21001/receive_heart_beat'
 
         while True:
             try:
@@ -124,7 +177,9 @@ class BaseModelWorker:
                     url,
                     json={
                         "worker_name": self.worker_addr,
+                        # self.worker_addr: 'http://{worker_ip}:21002'
                         "queue_length": self.get_queue_length(),
+                        # self.get_queue_length(): 0
                     },
                     timeout=5,
                 )
@@ -215,6 +270,9 @@ class ModelWorker(BaseModelWorker):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.context_len = get_context_length(self.model.config)
         self.generate_stream_func = get_generate_stream_function(self.model, model_path)
+        # 只要模型不是chatglm/falcon/codet5p, 那么generate_stream_func就是generate_stream
+        # if model_path == /data1/csw_model_weights/OriginOne, generate_stream_func: fastchat.serve.inference.generate_stream
+        # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, generate_stream_func: fastchat.serve.inference.generate_stream
         self.stream_interval = stream_interval
 
         if not no_register:
@@ -232,6 +290,23 @@ class ModelWorker(BaseModelWorker):
                 self.context_len,
                 self.stream_interval,
             ):
+                # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 历次的outputs:
+                '''
+                {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
+                {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
+                {'text': 'I am Vicuna,', 'usage': {'prompt_tokens': 42, 'completion_tokens': 4, 'total_tokens': 46}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language', 'usage': {'prompt_tokens': 42, 'completion_tokens': 6, 'total_tokens': 48}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained', 'usage': {'prompt_tokens': 42, 'completion_tokens': 8, 'total_tokens': 50}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by research', 'usage': {'prompt_tokens': 42, 'completion_tokens': 10, 'total_tokens': 52}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from', 'usage': {'prompt_tokens': 42, 'completion_tokens': 12, 'total_tokens': 54}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large', 'usage': {'prompt_tokens': 42, 'completion_tokens': 14, 'total_tokens': 56}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems', 'usage': {'prompt_tokens': 42, 'completion_tokens': 16, 'total_tokens': 58}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization', 'usage': {'prompt_tokens': 42, 'completion_tokens': 18, 'total_tokens': 60}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (L', 'usage': {'prompt_tokens': 42, 'completion_tokens': 20, 'total_tokens': 62}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS', 'usage': {'prompt_tokens': 42, 'completion_tokens': 22, 'total_tokens': 64}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': None}
+                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': 'stop'}
+                '''
                 ret = {
                     "text": output["text"],
                     "error_code": 0,
@@ -400,9 +475,11 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--port", type=int, default=21002)
     parser.add_argument("--worker-address", type=str, default="http://localhost:21002")
+    # --worker-address的默认参数值得改成"http://{worker_ip}:21002"形式
     parser.add_argument(
         "--controller-address", type=str, default="http://localhost:21001"
     )
+    # --controller-address的默认参数值得改成"http://{controller_ip}:21001"形式
     add_model_args(parser)
     parser.add_argument(
         "--model-names",
@@ -419,6 +496,29 @@ if __name__ == "__main__":
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
     logger.info(f"args: {args}")
+    # args:
+    # Namespace(
+    # 	host='localhost',
+    # 	port=21002,
+    # 	worker_address='http://{worker_ip}:21002',
+    # 	controller_address='http://{controller_ip}:21001',
+    # 	model_path='/data1/csw_model_weights/vicuna-7b-v1.3',
+    # 	revision='main',
+    # 	device='cuda',
+    # 	gpus=None,
+    # 	num_gpus=1,
+    # 	max_gpu_memory=None,
+    # 	load_8bit=False,
+    # 	cpu_offloading=False,
+    # 	gptq_ckpt=None,
+    # 	gptq_wbits=16,
+    # 	gptq_groupsize=-1,
+    # 	gptq_act_order=False,
+    # 	model_names=None,
+    # 	limit_worker_concurrency=5,
+    # 	stream_interval=2,
+    # 	no_register=False
+    # )
 
     if args.gpus:
         if len(args.gpus.split(",")) < args.num_gpus:
@@ -439,16 +539,17 @@ if __name__ == "__main__":
 
     worker = ModelWorker(
         args.controller_address,
-        # args.controller_address: "http://localhost:21001"
+        # args.controller_address: "http://{controller_ip}:21001"
         args.worker_address,
-        # args.worker_address: "http://localhost:21002"
+        # args.worker_address: "http://{worker_ip}:21002"
         worker_id,
-        # worker_id: 一个每次运行都不固定的字符串, 这里以'8c0542'举例
+        # worker_id: 一个每次运行都不固定的字符串, 这里以'e73850d4'举例
         args.model_path,
-        # args.model_path: '/data/model_weights/OriginOne-13b-v1.7.6/output'
+        # args.model_path: '/data1/csw_model_weights/vicuna-7b-v1.3'
         args.model_names,
         # args.model_names: None
         args.limit_worker_concurrency,
+        # args.limit_worker_concurrency: 5
         no_register=args.no_register,
         # args.no_register: False
         device=args.device,
@@ -463,5 +564,6 @@ if __name__ == "__main__":
         # args.cpu_offloading: False
         gptq_config=gptq_config,
         stream_interval=args.stream_interval,
+        # args.stream_interval: 2
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
