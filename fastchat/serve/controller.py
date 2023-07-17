@@ -126,6 +126,7 @@ class Controller:
         del self.worker_info[worker_name]
 
     def refresh_all_workers(self):
+        # 将controller中所有注册过的worker删除, 并重新建立连接
         old_info = dict(self.worker_info)
         self.worker_info = {}
 
@@ -224,6 +225,7 @@ class Controller:
         logger.info(f"no worker: {params['model']}")
         ret = {
             "text": SERVER_ERROR_MSG,
+            # SERVER_ERROR_MSG: "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
             "error_code": ErrorCode.CONTROLLER_NO_WORKER,
         }
         return json.dumps(ret).encode() + b"\0"
@@ -232,6 +234,7 @@ class Controller:
         logger.info(f"worker timeout: {worker_address}")
         ret = {
             "text": SERVER_ERROR_MSG,
+            # SERVER_ERROR_MSG: "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
             "error_code": ErrorCode.CONTROLLER_WORKER_TIMEOUT,
         }
         return json.dumps(ret).encode() + b"\0"
@@ -260,9 +263,9 @@ class Controller:
         # params:
         # {
         #     'model': 'vicuna-7b-v1.3',
-        #     'prompt': "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Tell me a story with more than 1000 words. ASSISTANT:",
+        #     'prompt': "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Who are you ASSISTANT:",
         #     'temperature': 0.0,
-        #     'max_new_tokens': 32,
+        #     'max_new_tokens': 512,
         #     'stop': None,
         #     'stop_token_ids': None,
         #     'echo': False
@@ -347,6 +350,7 @@ async def worker_api_get_status(request: Request):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
+    # 如果controller和worker不在同一台机器上开启, 那么host参数要填controller的ip地址
     parser.add_argument("--port", type=int, default=21001)
     parser.add_argument(
         "--dispatch-method",

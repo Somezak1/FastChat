@@ -53,7 +53,7 @@ def main():
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
     # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, prompt:
-    # 'A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Tell me a story with more than 1000 words. ASSISTANT:'
+    # 'A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Who are you ASSISTANT:'
 
     headers = {"User-Agent": "FastChat Client"}
     gen_params = {
@@ -90,6 +90,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # 该测试程序可以在除controller和worker之外的第三台机器上进行
+    # 若指定worker_address, 则会直接向worker_address发送推断请求
+    # 若未指定worker_address, 则可以向controller询问, 在与其保持通讯的worker_address中, 是否有名称是model_name的worker
+    # 然后取得该model_name的worker_address发送推断请求
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--controller-address", type=str, default="http://localhost:21001"

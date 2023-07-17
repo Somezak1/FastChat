@@ -54,10 +54,14 @@ app = FastAPI()
 def heart_beat_worker(obj):
     while True:
         time.sleep(WORKER_HEART_BEAT_INTERVAL)
+        # WORKER_HEART_BEAT_INTERVAL: 45
         obj.send_heart_beat()
 
 
 class BaseModelWorker:
+    '''
+    BaseModelWorker类主要负责与controller通信, ModelWorker类主要负责推断
+    '''
     def __init__(
         self,
         controller_addr: str,
@@ -81,6 +85,7 @@ class BaseModelWorker:
         self.model_names = model_names or [model_path.split("/")[-1]]
         self.limit_worker_concurrency = limit_worker_concurrency
 
+        # 根据model_path, 即可知道与之匹配的对话模板
         self.conv = get_conversation_template(model_path)
         # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
         # if model_path == /data1/csw_model_weights/OriginOne, conv:
@@ -128,12 +133,18 @@ class BaseModelWorker:
         # )
         self.tokenizer = None
         self.context_len = None
+        # self.call_ct 调用次数计数
         self.call_ct = 0
         self.semaphore = None
 
         self.heart_beat_thread = None
 
     def init_heart_beat(self):
+        '''
+        向controller报备完毕之后, 程序会单独再开一个线程
+        该线程每隔45秒会向controller报备一下, 确保worker与controller之间的连接畅通
+        如果当次报备失败, 则间隔5秒重新报备, 直至成功
+        '''
         self.register_to_controller()
         self.heart_beat_thread = threading.Thread(
             target=heart_beat_worker, args=(self,)
@@ -141,6 +152,10 @@ class BaseModelWorker:
         self.heart_beat_thread.start()
 
     def register_to_controller(self):
+        '''
+        向controller发送一个包含自身信息的data, 报备一下, 确保通信畅通
+        如果报备失败, 则程序会报错
+        '''
         logger.info("Register to controller")
 
         url = self.controller_addr + "/register_worker"
@@ -269,6 +284,7 @@ class ModelWorker(BaseModelWorker):
         if self.tokenizer.pad_token == None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.context_len = get_context_length(self.model.config)
+        # 读取config.json文件里的内容获得模型所能支持的最大上下文长度
         self.generate_stream_func = get_generate_stream_function(self.model, model_path)
         # 只要模型不是chatglm/falcon/codet5p, 那么generate_stream_func就是generate_stream
         # if model_path == /data1/csw_model_weights/OriginOne, generate_stream_func: fastchat.serve.inference.generate_stream
@@ -290,7 +306,7 @@ class ModelWorker(BaseModelWorker):
                 self.context_len,
                 self.stream_interval,
             ):
-                # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 历次的outputs:
+                # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 则历次的output为:
                 '''
                 {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
                 {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
@@ -318,11 +334,18 @@ class ModelWorker(BaseModelWorker):
                 if "logprobs" in output:
                     ret["logprobs"] = output["logprobs"]
                 yield json.dumps(ret).encode() + b"\0"
+                # with b"\0"
+                # b'{"text": "...", "error_code": 0, ...}\x00'
+                # without b"\0"
+                # b'{"text": "...", "error_code": 0, ...}'
+
         except torch.cuda.OutOfMemoryError as e:
             ret = {
                 "text": f"{SERVER_ERROR_MSG}\n\n({e})",
                 "error_code": ErrorCode.CUDA_OUT_OF_MEMORY,
             }
+            # SERVER_ERROR_MSG:
+            # "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
             yield json.dumps(ret).encode() + b"\0"
         except (ValueError, RuntimeError) as e:
             ret = {
@@ -473,6 +496,7 @@ async def api_model_details(request: Request):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
+    # 如果controller和worker不在同一台机器上开启, 那么host参数要填worker的ip地址, 同时还得指定worker_address和controller_address
     parser.add_argument("--port", type=int, default=21002)
     parser.add_argument("--worker-address", type=str, default="http://localhost:21002")
     # --worker-address的默认参数值得改成"http://{worker_ip}:21002"形式
