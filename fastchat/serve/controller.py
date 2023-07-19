@@ -182,6 +182,8 @@ class Controller:
             worker_names = []
             worker_qlen = []
             for w_name, w_info in self.worker_info.items():
+                # w_name: 'http://{worker_ip}:21002'
+                # w_info: WorkerInfo(...) obj
                 if model_name in w_info.model_names:
                     worker_names.append(w_name)
                     worker_qlen.append(w_info.queue_length / w_info.speed)

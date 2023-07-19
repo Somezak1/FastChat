@@ -117,6 +117,7 @@ async def check_model(request) -> Optional[JSONResponse]:
     ret = None
     async with httpx.AsyncClient() as client:
         try:
+            # 向controller_address发送get_worker_address请求
             _worker_addr = await get_worker_address(request.model, client)
         except:
             models_ret = await client.post(controller_address + "/list_models")
@@ -132,23 +133,37 @@ async def check_length(request, prompt, max_tokens):
     async with httpx.AsyncClient() as client:
         worker_addr = await get_worker_address(request.model, client)
 
+        # 向worker_address发送model_details请求
         response = await client.post(
             worker_addr + "/model_details",
             headers=headers,
             json={"model": request.model},
             timeout=WORKER_API_TIMEOUT,
+            # WORKER_API_TIMEOUT: 100s
         )
+        # response: {"context_length": worker.context_len}
         context_len = response.json()["context_length"]
+        # context_len: model worker中加载的模型所能支持的最大上下文长度, 该值由模型权重路径下的config.json文件定义, 默认值是2048
 
+        # 向worker_address发送count_token请求
         response = await client.post(
             worker_addr + "/count_token",
             headers=headers,
             json={"model": request.model, "prompt": prompt},
             timeout=WORKER_API_TIMEOUT,
+            # WORKER_API_TIMEOUT: 100s
         )
+        # response: {"count": input_echo_len, "error_code": 0}
         token_num = response.json()["count"]
+        # token_num: 传入模型的prompt(system_content+Q+A+...+Q)所占用的tokens数量
 
+    # max_tokens: 模型所能支持的最大输出长度(answer的最大tokens), 该值可以人为定义
     if token_num + max_tokens > context_len:
+        # prompt+answer所占用的tokens数量需要小于模型所能支持的最大上下文长度, 不然会报错
+        # max_tokens大了, 那么prompt所能占用的最大tokens就会减少; 同理, max_tokens小了, 那么prompt所能占用的最大tokens就会增加
+        # 如果prompt的tokens大于token_num, 则会将prompt截断, 即prompt=prompt[-token_num:]
+        # 模型在正常情况下会输出完整的answer, 那么返回的finish_reason='stop'
+        # 如果max_tokens过小, 则模型还未输出到停止符就会被迫停止, 且返回的finish_reason='length'
         return create_error_response(
             ErrorCode.CONTEXT_OVERFLOW,
             f"This model's maximum context length is {context_len} tokens. "
@@ -168,16 +183,25 @@ def check_requests(request) -> Optional[JSONResponse]:
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.max_tokens} is less than the minimum of 1 - 'max_tokens'",
         )
+        # max_tokens, integer, Optional, Defaults to inf
+        # The maximum number of tokens to generate in the chat completion.
+        # The total length of input tokens and generated tokens is limited by the model's context length.
     if request.n is not None and request.n <= 0:
         return create_error_response(
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.n} is less than the minimum of 1 - 'n'",
         )
+        # n, integer, Optional, Defaults to 1
+        # How many chat completion choices to generate for each input message.
     if request.temperature is not None and request.temperature < 0:
         return create_error_response(
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.temperature} is less than the minimum of 0 - 'temperature'",
         )
+        # temperature, number, Optional, Defaults to 1
+        # What sampling temperature to use, between 0 and 2.
+        # Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
+        # We generally recommend altering this or top_p but not both.
     if request.temperature is not None and request.temperature > 2:
         return create_error_response(
             ErrorCode.PARAM_OUT_OF_RANGE,
@@ -188,6 +212,10 @@ def check_requests(request) -> Optional[JSONResponse]:
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.top_p} is less than the minimum of 0 - 'top_p'",
         )
+        # top_p, number, Optional, Defaults to 1
+        # An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass.
+        # So 0.1 means only the tokens comprising the top 10% probability mass are considered.
+        # We generally recommend altering this or temperature but not both.
     if request.top_p is not None and request.top_p > 1:
         return create_error_response(
             ErrorCode.PARAM_OUT_OF_RANGE,
@@ -200,6 +228,8 @@ def check_requests(request) -> Optional[JSONResponse]:
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.stop} is not valid under any of the given schemas - 'stop'",
         )
+        # stop, string or array, Optional, Defaults to null
+        # Up to 4 sequences where the API will stop generating further tokens.
 
     return None
 
@@ -295,6 +325,7 @@ async def get_worker_address(model_name: str, client: httpx.AsyncClient) -> str:
     """
     controller_address = app_settings.controller_address
 
+    # 向controller_address发送get_worker_address请求
     ret = await client.post(
         controller_address + "/get_worker_address", json={"model": model_name}
     )
@@ -310,8 +341,12 @@ async def get_worker_address(model_name: str, client: httpx.AsyncClient) -> str:
 async def get_conv(model_name: str):
     controller_address = app_settings.controller_address
     async with httpx.AsyncClient() as client:
+        # 向controller_address发送get_worker_address请求
         worker_addr = await get_worker_address(model_name, client)
+        # 本进程维护一个字典conv_template_map
         conv_template = conv_template_map.get((worker_addr, model_name))
+        # 先去字典中查询这个worker_address下该model的对话模板
+        # 如果字典中没有该信息, 就向worker_address发送worker_get_conv_template的请求, 将获取到的worker_address存储在字典中
         if conv_template is None:
             response = await client.post(
                 worker_addr + "/worker_get_conv_template",
@@ -349,6 +384,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
     if error_check_ret is not None:
         return error_check_ret
 
+    # 获取对话模板, 同时根据对话模板及传入的messages将文本拼接成输入模型的prompt
+    # 汇总其他模型生成参数, 获得gen_params
     gen_params = await get_gen_params(
         request.model,
         request.messages,
@@ -588,6 +625,7 @@ async def generate_completion(payload: Dict[str, Any]):
     async with httpx.AsyncClient() as client:
         worker_addr = await get_worker_address(payload["model"], client)
 
+        # 向worker_address发送worker_generate请求
         response = await client.post(
             worker_addr + "/worker_generate",
             headers=headers,
