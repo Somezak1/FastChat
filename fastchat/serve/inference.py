@@ -522,8 +522,12 @@ def chat_loop(
             # stop_token_ids: None
             "echo": False,
         }
+        cp_gen_params = gen_params.copy()
+        del cp_gen_params['prompt']
+        cp_gen_params['conv'] = conv.name
 
         chatio.prompt_for_output(conv.roles[1])
+        t = time.time()
         output_stream = generate_stream_func(
             model,
             tokenizer,
@@ -532,17 +536,20 @@ def chat_loop(
             context_len=context_len,
             judge_sent_end=judge_sent_end,
         )
-        t = time.time()
         outputs = chatio.stream_output(output_stream)
         duration = time.time() - t
         conv.update_last_message(outputs.strip())
 
         if debug:
+            prompt_tokens = len(tokenizer.encode(prompt))
             num_tokens = len(tokenizer.encode(outputs))
             msg = {
                 "conv_template": conv.name,
                 "prompt": prompt,
                 "outputs": outputs,
                 "speed (token/s)": round(num_tokens / duration, 2),
+                "total_tokens": prompt_tokens+num_tokens,
+                "prompt_tokens": prompt_tokens,
+                "output_tokens": num_tokens,
             }
-            print(f"\n{msg}\n")
+            print(f"\n{msg}\n{cp_gen_params}\n")
