@@ -68,6 +68,8 @@ class Controller:
     def __init__(self, dispatch_method: str):
         # Dict[str -> WorkerInfo]
         self.worker_info = {}
+        # note: self.worker_info中worker的queue_length信息只有在heart_beat和get_worker_address时才会得到更新
+        # 其中heart_beat 45秒发送一次, 所以get_worker_address时所依据的queue_length信息可能是过时的
         self.dispatch_method = DispatchMethod.from_str(dispatch_method)
         # self.dispatch_method: DispatchMethod.SHORTEST_QUEUE
         # 该值用于get_worker_address

@@ -102,9 +102,14 @@ async def check_api_key(
 
 
 def create_error_response(code: int, message: str) -> JSONResponse:
+    # 创建一个JSON格式的错误响应
     return JSONResponse(
         ErrorResponse(message=message, code=code).dict(), status_code=400
     )
+    # class ErrorResponse(BaseModel):
+    #     object: str = "error"
+    #     message: str
+    #     code: int
 
 
 @app.exception_handler(RequestValidationError)
@@ -113,6 +118,11 @@ async def validation_exception_handler(request, exc):
 
 
 async def check_model(request) -> Optional[JSONResponse]:
+    '''
+    向controller_address发送get_worker_address请求
+    判断controller所登记的model中是否有request.model
+    如有则返回None, 如没有则返回一个JSON格式错误响应
+    '''
     controller_address = app_settings.controller_address
     ret = None
     async with httpx.AsyncClient() as client:
@@ -130,6 +140,9 @@ async def check_model(request) -> Optional[JSONResponse]:
 
 
 async def check_length(request, prompt, max_tokens):
+    '''
+    assert prompt_tokens + max_tokens <= context_len
+    '''
     async with httpx.AsyncClient() as client:
         worker_addr = await get_worker_address(request.model, client)
 
@@ -160,10 +173,10 @@ async def check_length(request, prompt, max_tokens):
     # max_tokens: 模型所能支持的最大输出长度(answer的最大tokens), 该值可以人为定义
     if token_num + max_tokens > context_len:
         # prompt+answer所占用的tokens数量需要小于模型所能支持的最大上下文长度, 不然会报错
-        # max_tokens大了, 那么prompt所能占用的最大tokens就会减少; 同理, max_tokens小了, 那么prompt所能占用的最大tokens就会增加
-        # 如果prompt的tokens大于token_num, 则会将prompt截断, 即prompt=prompt[-token_num:]
         # 模型在正常情况下会输出完整的answer, 那么返回的finish_reason='stop'
         # 如果max_tokens过小, 则模型还未输出到停止符就会被迫停止, 且返回的finish_reason='length'
+        # 注意: 这里和真正推断的时候还有一点不一样, 真正推断时候prompt会进行如下截断, 优先保证answer的输出空间
+        # prompt = prompt[-(context_len-max_tokens-8):]
         return create_error_response(
             ErrorCode.CONTEXT_OVERFLOW,
             f"This model's maximum context length is {context_len} tokens. "
@@ -259,6 +272,7 @@ async def get_gen_params(
     stream: Optional[bool],
     stop: Optional[Union[str, List[str]]],
 ) -> Dict[str, Any]:
+    # 获取推断时所需的model, prompt, 温度, max_new_tokens 等信息
     conv = await get_conv(model_name)
     conv = Conversation(
         name=conv["name"],
@@ -280,6 +294,7 @@ async def get_gen_params(
             msg_role = message["role"]
             if msg_role == "system":
                 conv.system = message["content"]
+                # 若调用api时指定system_content, 则会覆盖conv中原本的system_content
             elif msg_role == "user":
                 conv.append_message(conv.roles[0], message["content"])
             elif msg_role == "assistant":
@@ -290,6 +305,7 @@ async def get_gen_params(
         # Add a blank message for the assistant.
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
+        # 按conv中定义的方式将system_content+Q+A+...+Q等内容拼接在一起
 
     if max_tokens is None:
         max_tokens = 512
@@ -323,6 +339,8 @@ async def get_worker_address(model_name: str, client: httpx.AsyncClient) -> str:
     :return: Worker address from the controller
     :raises: :class:`ValueError`: No available worker for requested model
     """
+    # 若controller.dispatch_method==LOTTERY, 则从所有名称为model_name的worker中随机挑一个返回
+    # 若controller.dispatch_method==SHORTEST_QUEUE, 则从所有名称为model_name的worker中挑一个负载最小的返回
     controller_address = app_settings.controller_address
 
     # 向controller_address发送get_worker_address请求
@@ -339,6 +357,8 @@ async def get_worker_address(model_name: str, client: httpx.AsyncClient) -> str:
 
 
 async def get_conv(model_name: str):
+    # 向controller检索一个名为model_name的worker_address
+    # 紧接着向worker_address通信, 得到该worker初始化时的对话模板conv_template
     controller_address = app_settings.controller_address
     async with httpx.AsyncClient() as client:
         # 向controller_address发送get_worker_address请求
@@ -346,13 +366,14 @@ async def get_conv(model_name: str):
         # 本进程维护一个字典conv_template_map
         conv_template = conv_template_map.get((worker_addr, model_name))
         # 先去字典中查询这个worker_address下该model的对话模板
-        # 如果字典中没有该信息, 就向worker_address发送worker_get_conv_template的请求, 将获取到的worker_address存储在字典中
+        # 如果字典中没有该信息, 就向worker_address发送worker_get_conv_template的请求, 将获取到的conv_template存储在字典中
         if conv_template is None:
             response = await client.post(
                 worker_addr + "/worker_get_conv_template",
                 headers=headers,
                 json={"model": model_name},
                 timeout=WORKER_API_TIMEOUT,
+                # WORKER_API_TIMEOUT: 100
             )
             conv_template = response.json()["conv"]
             conv_template_map[(worker_addr, model_name)] = conv_template
@@ -377,6 +398,25 @@ async def show_available_models():
 @app.post("/v1/chat/completions", dependencies=[Depends(check_api_key)])
 async def create_chat_completion(request: ChatCompletionRequest):
     """Creates a completion for the chat message"""
+
+    # create_chat_completion函数中各函数通信次数统计:
+    #    函数-->子函数                                                       调用controller            调用worker
+    # ① check_model                                                        .get_worker_address      None
+    # ② get_gen_params-->get_conv                                          .get_worker_address      .worker_get_conv_template
+    # ③ check_length                                                       .get_worker_address      .model_details, .count_token
+
+    # if request.stream == True
+    # ④ chat_completion_stream_generator-->generate_completion_stream      .get_worker_address      .worker_generate_stream
+    # else
+    # ④ generate_completion                                                .get_worker_address      .worker_generate
+
+    # 每有一个create_chat_completion请求, openai_api_server就会向controller进行4次get_worker_address通信
+    # controller会依据同名model之前通信保存的负载, 返回一个dispatch_method方法指定的worker_address
+    # 但依据上面的表格所示, ①②③④四个函数所调用的get_worker_address, 其后跟随的调用worker的通信负载是不一样的
+    # worker_generate_stream和worker_generate的通信负载要远大于worker_get_conv_template, model_details, count_token
+    # 所以controller中依据get_worker_address的负载来返回worker_address的策略经常会出现
+    # 一张卡经常干model_details, count_token之类的杂活
+    # 另一张卡却经常, 多次被分配到worker_generate_stream这样的重活, 导致卡的利用率不高
     error_check_ret = await check_model(request)
     if error_check_ret is not None:
         return error_check_ret
@@ -611,6 +651,7 @@ async def generate_completion_stream(payload: Dict[str, Any]):
             headers=headers,
             json=payload,
             timeout=WORKER_API_TIMEOUT,
+            # WORKER_API_TIMEOUT: 100
         ) as response:
             # content = await response.aread()
             async for raw_chunk in response.aiter_raw():
@@ -631,6 +672,7 @@ async def generate_completion(payload: Dict[str, Any]):
             headers=headers,
             json=payload,
             timeout=WORKER_API_TIMEOUT,
+            # WORKER_API_TIMEOUT: 100
         )
         completion = response.json()
         return completion
