@@ -131,9 +131,7 @@ def generate_stream(
     logits_processor = prepare_logits_processor(
         temperature, repetition_penalty, top_p, top_k
     )
-
     input_ids = tokenizer(prompt).input_ids
-    output_ids = list(input_ids)
 
     # model.config (模型权重路径下的config.json文件):
     # LlamaConfig {
@@ -164,10 +162,11 @@ def generate_stream(
     if model.config.is_encoder_decoder:
         max_src_len = context_len
     else:  # truncate
-        max_src_len = context_len - max_new_tokens - 8
-        # max_src_len: 1528  模型能够接受的最长输入序列的长度
+        max_src_len = context_len - max_new_tokens - 1
+        # max_src_len: 1535  模型能够接受的最长输入序列的长度
 
     input_ids = input_ids[-max_src_len:]
+    output_ids = list(input_ids)
     input_echo_len = len(input_ids)
 
     if model.config.is_encoder_decoder:
@@ -347,6 +346,8 @@ def generate_stream(
     del past_key_values, out
     gc.collect()
     torch.cuda.empty_cache()
+    if device == "xpu":
+        torch.xpu.empty_cache()
 
 
 class ChatIO(abc.ABC):

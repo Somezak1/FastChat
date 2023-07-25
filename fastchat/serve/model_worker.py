@@ -35,6 +35,7 @@ import torch.nn.functional as F
 import uvicorn
 
 from fastchat.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
+from fastchat.conversation import get_conv_template
 from fastchat.model.model_adapter import (
     load_model,
     add_model_args,
@@ -76,6 +77,7 @@ class BaseModelWorker:
         # model_names: None
         limit_worker_concurrency: int,
         # limit_worker_concurrency: 5
+        conv_template: str = None,
     ):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
@@ -85,52 +87,57 @@ class BaseModelWorker:
         self.model_names = model_names or [model_path.split("/")[-1]]
         self.limit_worker_concurrency = limit_worker_concurrency
 
-        # 根据model_path, 即可知道与之匹配的对话模板
-        self.conv = get_conversation_template(model_path)
-        # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
-        # if model_path == /data1/csw_model_weights/OriginOne, conv:
-        # Conversation(
-        #     name="one_shot",
-        #     system="A chat between a curious human and an artificial intelligence assistant. "
-        #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
-        #     roles=("Human", "Assistant"),
-        #     messages=(
-        #         (
-        #             "Human",
-        #             "Got any creative ideas for a 10 year old’s birthday?",
-        #         ),
-        #         (
-        #             "Assistant",
-        #             """Of course! Here are some creative ideas for a 10-year-old's birthday party:
-        # 1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.
-        # 2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.
-        # 3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.
-        # 4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.
-        # 5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.
-        # 6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.
-        # 7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.
-        # 8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.
-        # Remember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!""",
-        #         ),
-        #     ),
-        #     offset=2,
-        #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
-        #     sep="\n### ",
-        #     stop_str="###",
-        # )
+        if conv_template:
+            self.conv = get_conv_template(conv_template)
+        else:
+            # 根据model_path, 即可知道与之匹配的对话模板
+            self.conv = get_conversation_template(model_path)
+            # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
+            # if model_path == /data1/csw_model_weights/OriginOne, conv:
+            # Conversation(
+            #     name="one_shot",
+            #     system="A chat between a curious human and an artificial intelligence assistant. "
+            #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+            #     roles=("Human", "Assistant"),
+            #     messages=(
+            #         (
+            #             "Human",
+            #             "Got any creative ideas for a 10 year old’s birthday?",
+            #         ),
+            #         (
+            #             "Assistant",
+            #             """Of course! Here are some creative ideas for a 10-year-old's birthday party:
+            # 1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.
+            # 2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.
+            # 3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.
+            # 4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.
+            # 5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.
+            # 6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.
+            # 7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.
+            # 8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.
+            # Remember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!""",
+            #         ),
+            #     ),
+            #     offset=2,
+            #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
+            #     sep="\n### ",
+            #     stop_str="###",
+            # )
 
-        # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
-        # Conversation(
-        #     name="vicuna_v1.1",
-        #     system="A chat between a curious user and an artificial intelligence assistant. "
-        #     "The assistant gives helpful, detailed, and polite answers to the user's questions.",
-        #     roles=("USER", "ASSISTANT"),
-        #     messages=(),
-        #     offset=0,
-        #     sep_style=SeparatorStyle.ADD_COLON_TWO,
-        #     sep=" ",
-        #     sep2="</s>",
-        # )
+            # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
+            # Conversation(
+            #     name="vicuna_v1.1",
+            #     system="A chat between a curious user and an artificial intelligence assistant. "
+            #     "The assistant gives helpful, detailed, and polite answers to the user's questions.",
+            #     roles=("USER", "ASSISTANT"),
+            #     messages=(),
+            #     offset=0,
+            #     sep_style=SeparatorStyle.ADD_COLON_TWO,
+            #     sep=" ",
+            #     sep2="</s>",
+            # )
+
+        self.conv.sep_style = int(self.conv.sep_style)
         self.tokenizer = None
         self.context_len = None
         # self.call_ct 调用次数计数
@@ -260,6 +267,7 @@ class ModelWorker(BaseModelWorker):
         cpu_offloading: bool = False,
         gptq_config: bool = None,
         stream_interval: int = 2,
+        conv_template: str = None,
     ):
         super().__init__(
             controller_addr,
@@ -268,6 +276,7 @@ class ModelWorker(BaseModelWorker):
             model_path,
             model_names,
             limit_worker_concurrency,
+            conv_template=conv_template,
         )
 
         logger.info(f"Loading the model {self.model_names} on worker {worker_id} ...")
@@ -511,6 +520,9 @@ if __name__ == "__main__":
         help="Optional display comma separated names",
     )
     parser.add_argument(
+        "--conv-template", type=str, default=None, help="Conversation prompt template."
+    )
+    parser.add_argument(
         "--limit-worker-concurrency",
         type=int,
         default=5,
@@ -589,5 +601,6 @@ if __name__ == "__main__":
         gptq_config=gptq_config,
         stream_interval=args.stream_interval,
         # args.stream_interval: 2
+        conv_template=args.conv_template,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
