@@ -95,6 +95,17 @@ def generate_stream(
     "### Human: Who are you"
     "### Assistant:"
 
+    # api接口调用且不带model和messages以外任何参数时, 传入该函数的params:
+    # {'model': ...,
+    #  'prompt': ...,
+    #  'temperature': 0.7,
+    #  'top_p': 1.0,
+    #  'max_new_tokens': 512,
+    #  'echo': False,
+    #  'stream': False,
+    #  'stop': None,
+    #  'stop_token_ids': None}
+
     # Read parameters
     prompt = params["prompt"]
     len_prompt = len(prompt)

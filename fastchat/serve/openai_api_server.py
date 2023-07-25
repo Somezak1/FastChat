@@ -399,6 +399,10 @@ async def show_available_models():
 async def create_chat_completion(request: ChatCompletionRequest):
     """Creates a completion for the chat message"""
 
+    # request: (调用请求时除model和messages以外, 其他参数未指定, 查看默认参数值)
+    # model='vicuna-7b-v1.3' messages=[{'role': 'user', 'content': '你了解冰鉴吗'}] temperature=0.7
+    # top_p=1.0 n=1 max_tokens=None stop=None stream=False presence_penalty=0.0 frequency_penalty=0.0 user=None
+
     # create_chat_completion函数中各函数通信次数统计:
     #    函数-->子函数                                                       调用controller            调用worker
     # ① check_model                                                        .get_worker_address      None
@@ -417,9 +421,10 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # 所以controller中依据get_worker_address的负载来返回worker_address的策略经常会出现
     # 一张卡经常干model_details, count_token之类的杂活
     # 另一张卡却经常, 多次被分配到worker_generate_stream这样的重活, 导致卡的利用率不高
-    error_check_ret = await check_model(request)
-    if error_check_ret is not None:
-        return error_check_ret
+
+    # error_check_ret = await check_model(request)
+    # if error_check_ret is not None:
+    #     return error_check_ret
     error_check_ret = check_requests(request)
     if error_check_ret is not None:
         return error_check_ret
@@ -436,11 +441,11 @@ async def create_chat_completion(request: ChatCompletionRequest):
         stream=request.stream,
         stop=request.stop,
     )
-    error_check_ret = await check_length(
-        request, gen_params["prompt"], gen_params["max_new_tokens"]
-    )
-    if error_check_ret is not None:
-        return error_check_ret
+    # error_check_ret = await check_length(
+    #     request, gen_params["prompt"], gen_params["max_new_tokens"]
+    # )
+    # if error_check_ret is not None:
+    #     return error_check_ret
 
     if request.stream:
         generator = chat_completion_stream_generator(
