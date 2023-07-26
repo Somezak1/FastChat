@@ -52,7 +52,8 @@ class SimpleChatIO(ChatIO):
     def stream_output(self, output_stream):
         pre = 0
         for outputs in output_stream:
-            # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 历次的outputs:
+            # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/ --temperature 0
+            # 历次的outputs:
             '''
             {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
             {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
@@ -258,9 +259,9 @@ def main(args):
 
 if __name__ == "__main__":
     # debug代码
-    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/ --temperature 0
     # or
-    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/  --temperature 0
 
     # 接受必要的参数信息
     parser = argparse.ArgumentParser()
@@ -270,7 +271,7 @@ if __name__ == "__main__":
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
     # 温度参数改为0, 方便调试结果可复现
-    parser.add_argument("--temperature", type=float, default=0)
+    parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--no-history", action="store_true")

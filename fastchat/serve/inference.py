@@ -95,67 +95,6 @@ def generate_stream(
     "### Human: Who are you"
     "### Assistant:"
 
-    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
-    # 	  "model": "OriginOne",
-    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
-    # }'
-    # params:
-    # {
-    #             'model': ...,
-    #             'prompt': ...,
-    #             'temperature': 0.7,
-    #             'top_p': 1.0,
-    #             'max_new_tokens': 512,
-    #             'stream': False,
-    #             'stop': '###',
-    #             'stop_token_ids': None
-    #             'echo': False,
-    # }
-
-    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
-    # 	  "model": "vicuna-7b-v1.3",
-    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
-    # }'
-    # params:
-    # {
-    #             'model': ...,
-    #             'prompt': ...,
-    #             'temperature': 0.7,
-    #             'top_p': 1.0,
-    #             'max_new_tokens': 512,
-    #             'stream': False,
-    #             'stop': None,
-    #             'stop_token_ids': None
-    #             'echo': False,
-    # }
-
-    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/
-    # params:
-    # {
-    #             "model": ...,
-    #             "prompt": ...,
-    #             "temperature": 0.0,
-    #             "repetition_penalty": 1.0,
-    #             "max_new_tokens": 512,
-    #             "stop": "###",
-    #             "stop_token_ids": None,
-    #             "echo": False,
-    # }
-
-    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/
-    # params:
-    # {
-    #             "model": ...,
-    #             "prompt": ...,
-    #             "temperature": 0.0,
-    #             "repetition_penalty": 1.0,
-    #             "max_new_tokens": 512,
-    #             "stop": None,
-    #             "stop_token_ids": None,
-    #             "echo": False,
-    # }
-
-
     # Read parameters
     prompt = params["prompt"]
     len_prompt = len(prompt)
@@ -172,10 +111,92 @@ def generate_stream(
     # tokenizer.eos_token_id: 2
     # tokenizer.decode(tokenizer.eos_token_id): '</s>'
 
+    # ①
+    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    # 	  "model": "OriginOne",
+    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
+    # }'
+    # params:
+    # {
+    #             'model': ...,
+    #             'prompt': ...,
+    #             'temperature': 0.7,
+    #             'top_p': 1.0,
+    #             'max_new_tokens': 512,
+    #             'stream': False,
+    #             'stop': '###',
+    #             'stop_token_ids': None
+    #             'echo': False,
+    # }
+    # 补充:
+    # repetition_penalty: 1.0
+    # top_k: -1
+
+    # ②
+    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    # 	  "model": "vicuna-7b-v1.3",
+    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
+    # }'
+    # params:
+    # {
+    #             'model': ...,
+    #             'prompt': ...,
+    #             'temperature': 0.7,
+    #             'top_p': 1.0,
+    #             'max_new_tokens': 512,
+    #             'stream': False,
+    #             'stop': None,
+    #             'stop_token_ids': None
+    #             'echo': False,
+    # }
+    # 补充:
+    # repetition_penalty: 1.0
+    # top_k: -1
+
+    # ③
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/ --temperature 0
+    # params:
+    # {
+    #             "model": ...,
+    #             "prompt": ...,
+    #             "temperature": 0.0,
+    #             "repetition_penalty": 1.0,
+    #             "max_new_tokens": 512,
+    #             "stop": "###",
+    #             "stop_token_ids": None,
+    #             "echo": False,
+    # }
+    # 补充:
+    # top_p: 1.0
+    # top_k: -1
+
+    # ④
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/ --temperature 0
+    # params:
+    # {
+    #             "model": ...,
+    #             "prompt": ...,
+    #             "temperature": 0.0,
+    #             "repetition_penalty": 1.0,
+    #             "max_new_tokens": 512,
+    #             "stop": None,
+    #             "stop_token_ids": None,
+    #             "echo": False,
+    # }
+    # 补充:
+    # top_p: 1.0
+    # top_k: -1
+
+    # 从传入generate_stream的params可见
+    # 上面几种调用方式的差别就在温度和"stop"
+    # ①附带温度为0的调用结果与③的结果一致
+    # ②附带温度为0的调用结果与④的结果一致
+
     logits_processor = prepare_logits_processor(
         temperature, repetition_penalty, top_p, top_k
     )
     input_ids = tokenizer(prompt).input_ids
+    # tokenizer会在原始句子开头加个'<s>', token_id为1
 
     # model.config.is_encoder_decoder: False
     if model.config.is_encoder_decoder:
@@ -305,8 +326,11 @@ def generate_stream(
 
             partially_stopped = False
             if stop_str:
+                # 判断当前的输出中是否有'###', 如果有, 则停止输出并去除'###'
+                # 如果当前输出的末尾有'#'或者'##', 则这一轮的partially_stopped=True
                 if isinstance(stop_str, str):
                     pos = output.rfind(stop_str, rfind_start)
+                    # 返回字符串最后一次出现的位置，如果没有匹配项则返回 -1
                     # rfind_start: 0
                     if pos != -1:
                         output = output[:pos]
