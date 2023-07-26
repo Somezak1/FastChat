@@ -489,7 +489,7 @@ def chat_loop(
             #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
             #     sep="\n### ",
             #     stop_str="###",
-            #     stop_token_ids=None,
+            #     stop_token_ids=None, (类变量默认值)
             # )
 
             # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
@@ -503,8 +503,8 @@ def chat_loop(
             #     sep_style=SeparatorStyle.ADD_COLON_TWO,
             #     sep=" ",
             #     sep2="</s>",
-            #     stop_str=None,
-            #     stop_token_ids=None,
+            #     stop_str=None, (类变量默认值)
+            #     stop_token_ids=None, (类变量默认值)
             # )
 
         try:

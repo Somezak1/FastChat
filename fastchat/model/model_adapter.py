@@ -145,6 +145,7 @@ def raise_warning_for_incompatible_cpu_offloading_configuration(
 
 def load_model(
     model_path: str,
+    # 此函数的注释仅限python -m fastchat.serve.cli --model-path .... 使用
     # model_path: /data1/csw_model_weights/OriginOne or /data1/csw_model_weights/vicuna-7b-v1.3
     device: str,
     # device: 'cuda'

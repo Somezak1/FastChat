@@ -59,6 +59,7 @@ class Conversation:
     #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
     #     sep="\n### ",
     #     stop_str="###",
+    #     stop_token_ids=None, (类变量默认值)
     # )
 
     # Conversation(
@@ -68,6 +69,8 @@ class Conversation:
     #     sep_style=SeparatorStyle.ADD_COLON_TWO,
     #     sep=" ",
     #     sep2="</s>",
+    #     stop_str=None,  (类变量默认值)
+    #     stop_token_ids=None,  (类变量默认值)
     # )
 
     def get_prompt(self) -> str:
