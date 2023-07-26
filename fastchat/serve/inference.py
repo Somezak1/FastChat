@@ -95,68 +95,87 @@ def generate_stream(
     "### Human: Who are you"
     "### Assistant:"
 
-    # api接口调用且不带model和messages以外任何参数时, 传入该函数的params:
-    # {'model': ...,
-    #  'prompt': ...,
-    #  'temperature': 0.7,
-    #  'top_p': 1.0,
-    #  'max_new_tokens': 512,
-    #  'echo': False,
-    #  'stream': False,
-    #  'stop': None,
-    #  'stop_token_ids': None}
+    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    # 	  "model": "OriginOne",
+    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
+    # }'
+    # params:
+    # {
+    #             'model': ...,
+    #             'prompt': ...,
+    #             'temperature': 0.7,
+    #             'top_p': 1.0,
+    #             'max_new_tokens': 512,
+    #             'stream': False,
+    #             'stop': '###',
+    #             'stop_token_ids': None
+    #             'echo': False,
+    # }
+
+    # curl http://localhost:8002/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    # 	  "model": "vicuna-7b-v1.3",
+    #     "messages": [{"content":"你了解冰鉴吗？", "role":"user"}]
+    # }'
+    # params:
+    # {
+    #             'model': ...,
+    #             'prompt': ...,
+    #             'temperature': 0.7,
+    #             'top_p': 1.0,
+    #             'max_new_tokens': 512,
+    #             'stream': False,
+    #             'stop': None,
+    #             'stop_token_ids': None
+    #             'echo': False,
+    # }
+
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/
+    # params:
+    # {
+    #             "model": ...,
+    #             "prompt": ...,
+    #             "temperature": 0.0,
+    #             "repetition_penalty": 1.0,
+    #             "max_new_tokens": 512,
+    #             "stop": "###",
+    #             "stop_token_ids": None,
+    #             "echo": False,
+    # }
+
+    # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/
+    # params:
+    # {
+    #             "model": ...,
+    #             "prompt": ...,
+    #             "temperature": 0.0,
+    #             "repetition_penalty": 1.0,
+    #             "max_new_tokens": 512,
+    #             "stop": None,
+    #             "stop_token_ids": None,
+    #             "echo": False,
+    # }
+
 
     # Read parameters
     prompt = params["prompt"]
     len_prompt = len(prompt)
     temperature = float(params.get("temperature", 1.0))
-    # temperature默认是0.7, 但此处为了复现改为0
     repetition_penalty = float(params.get("repetition_penalty", 1.0))
-    # repetition_penalty: 1.0
     top_p = float(params.get("top_p", 1.0))
-    # top_p: 1.0
     top_k = int(params.get("top_k", -1))  # -1 means disable
-    # top_k: -1
     max_new_tokens = int(params.get("max_new_tokens", 256))
-    # max_new_tokens: 512
     echo = bool(params.get("echo", True))
-    # echo: False
     stop_str = params.get("stop", None)
-    # stop_str: '###'
     stop_token_ids = params.get("stop_token_ids", None) or []
     # stop_token_ids: [2]
     stop_token_ids.append(tokenizer.eos_token_id)
     # tokenizer.eos_token_id: 2
+    # tokenizer.decode(tokenizer.eos_token_id): '</s>'
 
     logits_processor = prepare_logits_processor(
         temperature, repetition_penalty, top_p, top_k
     )
     input_ids = tokenizer(prompt).input_ids
-
-    # model.config (模型权重路径下的config.json文件):
-    # LlamaConfig {
-    #     "_name_or_path": "llama-7b-hf",
-    #     "architectures": [
-    #         "LlamaForCausalLM"
-    #     ],
-    #     "bos_token_id": 1,
-    #     "eos_token_id": 2,
-    #     "hidden_act": "silu",
-    #     "hidden_size": 4096,
-    #     "initializer_range": 0.02,
-    #     "intermediate_size": 11008,
-    #     "max_position_embeddings": 2048,
-    #     "model_type": "llama",
-    #     "num_attention_heads": 32,
-    #     "num_hidden_layers": 32,
-    #     "pad_token_id": 0,
-    #     "rms_norm_eps": 1e-06,
-    #     "tie_word_embeddings": false,
-    #     "torch_dtype": "float16",
-    #     "transformers_version": "4.28.1",
-    #     "use_cache": true,
-    #     "vocab_size": 32000
-    # }
 
     # model.config.is_encoder_decoder: False
     if model.config.is_encoder_decoder:
@@ -182,7 +201,7 @@ def generate_stream(
     past_key_values = out = None
     sent_interrupt = False
     for i in range(max_new_tokens):
-        # 模型在一次回答中能够输出的最长回答是512个token
+        # 模型在一次回答中能够输出的最长回答是max_new_tokens个token
         if i == 0:  # prefill
             if model.config.is_encoder_decoder:
                 out = model.decoder(
@@ -286,7 +305,6 @@ def generate_stream(
 
             partially_stopped = False
             if stop_str:
-                # stop_str: '###'
                 if isinstance(stop_str, str):
                     pos = output.rfind(stop_str, rfind_start)
                     # rfind_start: 0
@@ -439,6 +457,7 @@ def chat_loop(
     conv = None
 
     while True:
+        # 如果history=False, 那么每轮对话都是一轮全新、没有历史的对话
         if not history or not conv:
             conv = new_chat()
             # if model_path == /data1/csw_model_weights/OriginOne, conv:
@@ -470,6 +489,7 @@ def chat_loop(
             #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
             #     sep="\n### ",
             #     stop_str="###",
+            #     stop_token_ids=None,
             # )
 
             # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
@@ -483,6 +503,8 @@ def chat_loop(
             #     sep_style=SeparatorStyle.ADD_COLON_TWO,
             #     sep=" ",
             #     sep2="</s>",
+            #     stop_str=None,
+            #     stop_token_ids=None,
             # )
 
         try:
@@ -529,9 +551,11 @@ def chat_loop(
             "max_new_tokens": max_new_tokens,
             # max_new_tokens: 512
             "stop": conv.stop_str,
-            # stop_str: None
+            # if conv.name == 'one_shot', conv.stop_str: "###"
+            # if conv.name == 'vicuna_v1.1', conv.stop_str: None
             "stop_token_ids": conv.stop_token_ids,
-            # stop_token_ids: None
+            # if conv.name == 'one_shot', conv.stop_token_ids: None
+            # if conv.name == 'vicuna_v1.1', conv.stop_token_ids: None
             "echo": False,
         }
         cp_gen_params = gen_params.copy()

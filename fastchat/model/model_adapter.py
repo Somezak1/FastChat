@@ -163,6 +163,7 @@ def load_model(
     # debug: False
 ):
     """Load a model from Hugging Face."""
+    # cpu_offloading、load_8bit、gptq只能选择一个
 
     # get model adapter
     adapter = get_model_adapter(model_path)

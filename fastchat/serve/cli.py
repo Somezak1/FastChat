@@ -200,10 +200,11 @@ def main(args):
         os.environ["XPU_VISIBLE_DEVICES"] = args.gpus
 
     if args.style == "simple":
-        # args.style: simple
+        # args.style: 'simple'
         # args.multiline: False
         chatio = SimpleChatIO(args.multiline)
     elif args.style == "rich":
+        # args.mouse: False
         chatio = RichChatIO(args.multiline, args.mouse)
     elif args.style == "programmatic":
         chatio = ProgrammaticChatIO()
