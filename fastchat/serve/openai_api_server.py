@@ -38,7 +38,7 @@ from fastchat.protocol.openai_api_protocol import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionResponseStreamChoice,
-    ChatCompletionStreamResponse,
+    # ChatCompletionStreamResponse,
     ChatMessage,
     ChatCompletionResponseChoice,
     CompletionRequest,
@@ -61,10 +61,23 @@ from fastchat.protocol.api_protocol import (
     APITokenCheckResponse,
     APITokenCheckResponseItem,
 )
+from typing import Literal, Optional, List, Dict, Any, Union
+import time
+import shortuuid
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 conv_template_map = {}
+
+
+class ChatCompletionStreamResponse(BaseModel):
+    id: str = Field(default_factory=lambda: f"chatcmpl-{shortuuid.random()}")
+    object: str = "chat.completion.chunk"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    model: str
+    choices: List[ChatCompletionResponseStreamChoice]
+    usage: UsageInfo
 
 
 class AppSettings(BaseSettings):
@@ -490,6 +503,8 @@ async def chat_completion_stream_generator(
     """
     id = f"chatcmpl-{shortuuid.random()}"
     finish_stream_events = []
+    s_time = time.time()
+    usage = UsageInfo()
     for i in range(n):
         # First chunk with role
         choice_data = ChatCompletionResponseStreamChoice(
@@ -497,9 +512,21 @@ async def chat_completion_stream_generator(
             delta=DeltaMessage(role="assistant"),
             finish_reason=None,
         )
+        # class ChatCompletionResponseStreamChoice(BaseModel):
+        #     index: int
+        #     delta: DeltaMessage
+        #     finish_reason: Optional[Literal["stop", "length"]]
+
         chunk = ChatCompletionStreamResponse(
-            id=id, choices=[choice_data], model=model_name
+            id=id, choices=[choice_data], model=model_name, usage=usage
         )
+        # class ChatCompletionStreamResponse(BaseModel):
+        #     id: str = Field(default_factory=lambda: f"chatcmpl-{shortuuid.random()}")
+        #     object: str = "chat.completion.chunk"
+        #     created: int = Field(default_factory=lambda: int(time.time()))
+        #     model: str
+        #     choices: List[ChatCompletionResponseStreamChoice]
+
         yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
 
         previous_text = ""
@@ -519,9 +546,22 @@ async def chat_completion_stream_generator(
                 delta=DeltaMessage(content=delta_text),
                 finish_reason=content.get("finish_reason", None),
             )
+            # class ChatCompletionResponseStreamChoice(BaseModel):
+            #     index: int
+            #     delta: DeltaMessage
+            #     finish_reason: Optional[Literal["stop", "length"]]
+
+            task_usage = UsageInfo.parse_obj(content["usage"])
             chunk = ChatCompletionStreamResponse(
-                id=id, choices=[choice_data], model=model_name
+                id=id, choices=[choice_data], model=model_name, usage=task_usage
             )
+            # class ChatCompletionStreamResponse(BaseModel):
+            #     id: str = Field(default_factory=lambda: f"chatcmpl-{shortuuid.random()}")
+            #     object: str = "chat.completion.chunk"
+            #     created: int = Field(default_factory=lambda: int(time.time()))
+            #     model: str
+            #     choices: List[ChatCompletionResponseStreamChoice]
+
             if delta_text is None:
                 if content.get("finish_reason", None) is not None:
                     finish_stream_events.append(chunk)
@@ -530,7 +570,9 @@ async def chat_completion_stream_generator(
     # There is not "content" field in the last delta message, so exclude_none to exclude field "content".
     for finish_chunk in finish_stream_events:
         yield f"data: {finish_chunk.json(exclude_none=True, ensure_ascii=False)}\n\n"
-    yield "data: [DONE]\n\n"
+    e_time = time.time()
+    speed = finish_chunk.usage.completion_tokens / (e_time - s_time)
+    yield f"data: [DONE]  cost: {e_time - s_time:.1f} s  speed: {speed:.1f} tokens/s\n\n"
 
 
 @app.post("/v1/completions", dependencies=[Depends(check_api_key)])
