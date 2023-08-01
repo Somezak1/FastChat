@@ -410,6 +410,20 @@ async def show_available_models():
 
 @app.post("/v1/chat/completions", dependencies=[Depends(check_api_key)])
 async def create_chat_completion(request: ChatCompletionRequest):
+
+    # class ChatCompletionRequest(BaseModel):
+    #     model: str
+    #     messages: Union[str, List[Dict[str, str]]]
+    #     temperature: Optional[float] = 0.7
+    #     top_p: Optional[float] = 1.0
+    #     n: Optional[int] = 1
+    #     max_tokens: Optional[int] = None
+    #     stop: Optional[Union[str, List[str]]] = None
+    #     stream: Optional[bool] = False
+    #     presence_penalty: Optional[float] = 0.0
+    #     frequency_penalty: Optional[float] = 0.0
+    #     user: Optional[str] = None
+
     """Creates a completion for the chat message"""
 
     # request: (调用请求时除model和messages以外, 其他参数未指定, 查看默认参数值)
@@ -793,6 +807,15 @@ async def get_embedding(payload: Dict[str, Any]):
 
 @app.post("/api/v1/token_check")
 async def count_tokens(request: APITokenCheckRequest):
+
+    # class APITokenCheckRequestItem(BaseModel):
+    #     model: str
+    #     prompt: str
+    #     max_tokens: int
+    #
+    # class APITokenCheckRequest(BaseModel):
+    #     prompts: List[APITokenCheckRequestItem]
+
     """
     Checks the token count for each message in your list
     This is not part of the OpenAI API spec.
