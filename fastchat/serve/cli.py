@@ -8,6 +8,8 @@ python3 -m fastchat.serve.cli --model lmsys/fastchat-t5-3b-v1.0
 Other commands:
 - Type "!!exit" or an empty line to exit.
 - Type "!!reset" to start a new conversation.
+- Type "!!save <filename>" to save the conversation history to a json file.
+- Type "!!load <filename>" to load a conversation history from a json file.
 """
 import argparse
 import os
@@ -25,6 +27,7 @@ from rich.markdown import Markdown
 
 from fastchat.model.model_adapter import add_model_args
 from fastchat.modules.gptq import GptqConfig
+from fastchat.modules.awq import AWQConfig
 from fastchat.serve.inference import ChatIO, chat_loop
 
 
@@ -81,6 +84,9 @@ class SimpleChatIO(ChatIO):
         print(" ".join(output_text[pre:]), flush=True)
         return " ".join(output_text)
 
+    def print_output(self, text: str):
+        print(text)
+
 
 class RichChatIO(ChatIO):
     bindings = KeyBindings()
@@ -92,7 +98,7 @@ class RichChatIO(ChatIO):
     def __init__(self, multiline: bool = False, mouse: bool = False):
         self._prompt_session = PromptSession(history=InMemoryHistory())
         self._completer = WordCompleter(
-            words=["!!exit", "!!reset"], pattern=re.compile("$")
+            words=["!!exit", "!!reset", "!!save", "!!load"], pattern=re.compile("$")
         )
         self._console = Console()
         self._multiline = multiline
@@ -152,6 +158,9 @@ class RichChatIO(ChatIO):
         self._console.print()
         return text
 
+    def print_output(self, text: str):
+        self.stream_output([{"text": text}])
+
 
 class ProgrammaticChatIO(ChatIO):
     def prompt_for_input(self, role) -> str:
@@ -188,6 +197,9 @@ class ProgrammaticChatIO(ChatIO):
                 pre = now
         print(" ".join(output_text[pre:]), flush=True)
         return " ".join(output_text)
+
+    def print_output(self, text: str):
+        print(text)
 
 
 def main(args):
@@ -227,6 +239,7 @@ def main(args):
             # args.cpu_offloading: False
             args.conv_template,
             # args.conv_template: None
+            args.conv_system_msg,
             args.temperature,
             # args.temperature: 默认是0.7, 但此处为了复现改为0
             args.repetition_penalty,
@@ -234,7 +247,7 @@ def main(args):
             args.max_new_tokens,
             # args.max_new_tokens: 512
             chatio,
-            GptqConfig(
+            gptq_config=GptqConfig(
                 ckpt=args.gptq_ckpt or args.model_path,
                 # args.gptq_ckpt: None
                 wbits=args.gptq_wbits,
@@ -244,11 +257,16 @@ def main(args):
                 act_order=args.gptq_act_order,
                 # args.gptq_act_order: False
             ),
-            args.revision,
+            awq_config=AWQConfig(
+                ckpt=args.awq_ckpt or args.model_path,
+                wbits=args.awq_wbits,
+                groupsize=args.awq_groupsize,
+            ),
+            revision=args.revision,
             # args.revision: 'main'
-            args.judge_sent_end,
+            judge_sent_end=args.judge_sent_end,
             # args.judge_sent_end: False
-            args.debug,
+            debug=args.debug,
             # args.debug: False
             history=not args.no_history,
             # args.no_history: False
@@ -270,7 +288,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
-    # 温度参数改为0, 方便调试结果可复现
+    parser.add_argument(
+        "--conv-system-msg", type=str, default=None, help="Conversation system message."
+    )
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
     parser.add_argument("--max-new-tokens", type=int, default=512)
