@@ -130,7 +130,6 @@ async def validation_exception_handler(request, exc):
 
 async def check_model(request) -> Optional[JSONResponse]:
     '''
-    向controller_address发送get_worker_address请求
     判断controller所登记的model中是否有request.model
     如有则返回None, 如没有则返回一个JSON格式错误响应
     '''
@@ -421,14 +420,14 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
     # create_chat_completion函数中各函数通信次数统计:
     #    函数-->子函数                                                       调用controller            调用worker
-    # ① check_model                                                        .get_worker_address      None
-    # ② get_gen_params-->get_conv                                          .get_worker_address      .worker_get_conv_template
-    # ③ check_length                                                       .get_worker_address      .model_details, .count_token
-
+    # ① check_model                                                        None                     None
+    # create_chat_completion函数此时自己调用一次                               .get_worker_address       None
+    # ② get_gen_params-->get_conv                                          None                     .worker_get_conv_template
+    # ③ check_length                                                       None                     .model_details, .count_token
     # if request.stream == True
-    # ④ chat_completion_stream_generator-->generate_completion_stream      .get_worker_address      .worker_generate_stream
+    # ④ chat_completion_stream_generator-->generate_completion_stream      None                     .worker_generate_stream
     # else
-    # ④ generate_completion                                                .get_worker_address      .worker_generate
+    # ④ generate_completion                                                None                     .worker_generate
 
     # 每有一个create_chat_completion请求, openai_api_server就会向controller进行4次get_worker_address通信
     # controller会依据同名model之前通信保存的负载, 返回一个dispatch_method方法指定的worker_address
