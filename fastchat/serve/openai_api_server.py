@@ -415,8 +415,6 @@ async def create_chat_completion(request: ChatCompletionRequest):
     #     frequency_penalty: Optional[float] = 0.0
     #     user: Optional[str] = None
 
-    """Creates a completion for the chat message"""
-
     # request: (调用请求时除model和messages以外, 其他参数未指定, 查看默认参数值)
     # model='vicuna-7b-v1.3' messages=[{'role': 'user', 'content': '你了解冰鉴吗'}] temperature=0.7
     # top_p=1.0 n=1 max_tokens=None stop=None stream=False presence_penalty=0.0 frequency_penalty=0.0 user=None
@@ -440,15 +438,17 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # 一张卡经常干model_details, count_token之类的杂活
     # 另一张卡却经常, 多次被分配到worker_generate_stream这样的重活, 导致卡的利用率不高
 
-    # error_check_ret = await check_model(request)
-    # if error_check_ret is not None:
-    #     return error_check_ret
+    """Creates a completion for the chat message"""
+    error_check_ret = await check_model(request)
+    if error_check_ret is not None:
+        return error_check_ret
     error_check_ret = check_requests(request)
     if error_check_ret is not None:
         return error_check_ret
 
     async with httpx.AsyncClient() as client:
         worker_addr = await get_worker_address(request.model, client)
+
         # 获取对话模板, 同时根据对话模板及传入的messages将文本拼接成输入模型的prompt
         # 汇总其他模型生成参数, 获得gen_params
         gen_params = await get_gen_params(
