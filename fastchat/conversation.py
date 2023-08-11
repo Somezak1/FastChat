@@ -851,17 +851,17 @@ register_conv_template(
 
 # Baichuan-13B-Chat template
 register_conv_template(
-    # source: https://huggingface.co/baichuan-inc/Baichuan-13B-Chat/blob/f5f47be2adbbdceb784f334d6fa1ca2c73e65097/modeling_baichuan.py#L507
+    # source: https://huggingface.co/baichuan-inc/Baichuan-13B-Chat/blob/19ef51ba5bad8935b03acd20ff04a269210983bc/modeling_baichuan.py#L555
     # https://huggingface.co/baichuan-inc/Baichuan-13B-Chat/blob/main/generation_config.json
+    # https://github.com/baichuan-inc/Baichuan-13B/issues/25
     Conversation(
         name="baichuan-chat",
-        roles=(" <reserved_102> ", " <reserved_103> "),
+        roles=("<reserved_102>", "<reserved_103>"),
         messages=(),
         offset=0,
-        sep_style=SeparatorStyle.NO_COLON_TWO,
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
         sep="",
-        sep2="</s>",
-        stop_token_ids=[2, 195],
+        stop_token_ids=[],
     )
 )
 
@@ -871,11 +871,6 @@ register_conv_template(
     Conversation(
         name="llama-2",
         system_template="[INST] <<SYS>>\n{system_message}\n<</SYS>>\n\n",
-        system_message="You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. "
-        "Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. "
-        "Please ensure that your responses are socially unbiased and positive in nature.\n\n"
-        "If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. "
-        "If you don't know the answer to a question, please don't share false information.",
         roles=("[INST]", "[/INST]"),
         messages=(),
         offset=0,
@@ -898,6 +893,70 @@ register_conv_template(
         stop_str="<end>",
     )
 )
+
+# OpenOrcaxOpenChat-Preview2-13B template
+register_conv_template(
+    Conversation(
+        name="open-orca",
+        system_template="{system_message}",
+        system_message="You are a helpful assistant. Please answer truthfully and write out your "
+        "thinking step by step to be sure you get the right answer. If you make a mistake or encounter "
+        "an error in your thinking, say so out loud and attempt to correct it. If you don't know or "
+        "aren't sure about something, say so clearly. You will act as a professional logician, mathematician, "
+        "and physicist. You will also act as the most appropriate type of expert to answer any particular "
+        "question or solve the relevant problem; state which expert type your are, if so. Also think of "
+        "any particular named expert that would be ideal to answer the relevant question or solve the "
+        "relevant problem; name and act as them, if appropriate.",
+        roles=("User", "Assistant"),
+        messages=(),
+        offset=0,
+        sep_style=SeparatorStyle.ADD_COLON_SPACE_SINGLE,
+        sep="<|end_of_turn|>\n",
+        stop_token_ids=[32000, 32001],  # "<|end_of_turn|>"
+        stop_str="User",
+    )
+)
+
+
+# Qwen-chat default template
+# source: https://huggingface.co/Qwen/Qwen-7B-Chat/blob/main/qwen_generation_utils.py#L130
+register_conv_template(
+    Conversation(
+        name="qwen-7b-chat",
+        system_template="<|im_start|>system\n{system_message}",
+        system_message="You are a helpful assistant.",
+        roles=("<|im_start|>user", "<|im_start|>assistant"),
+        messages=(),
+        offset=0,
+        sep_style=SeparatorStyle.CHATML,
+        sep="<|im_end|>",
+        stop_token_ids=[
+            151643,
+            151644,
+            151645,
+        ],  # "<|endoftext|>", "<|im_start|>", "<|im_end|>"
+        stop_str="<|endoftext|>",
+    )
+)
+
+
+# AquilaChat default template
+# source: https://github.com/FlagAI-Open/FlagAI/blob/master/examples/Aquila/Aquila-chat/cyg_conversation.py
+register_conv_template(
+    Conversation(
+        name="aquila-chat",
+        system_message="A chat between a curious human and an artificial intelligence assistant. "
+        "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+        roles=("Human", "Assistant", "System"),
+        messages=(),
+        offset=0,
+        sep_style=SeparatorStyle.ADD_COLON_SINGLE,
+        sep="###",
+        sep2="",
+        stop_str=["###", "</s>", "[UNK]"],
+    )
+)
+
 
 if __name__ == "__main__":
     print("Vicuna template:")

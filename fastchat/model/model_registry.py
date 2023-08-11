@@ -81,6 +81,12 @@ register_model_info(
     "an instruction-following LLM using evol-instruct by Microsoft",
 )
 register_model_info(
+    ["wizardcoder-15b-v1.0"],
+    "WizardLM",
+    "https://github.com/nlpxucan/WizardLM/tree/main/WizardCoder",
+    "Empowering Code Large Language Models with Evol-Instruct",
+)
+register_model_info(
     ["mpt-7b-chat", "mpt-30b-chat"],
     "MPT-Chat",
     "https://www.mosaicml.com/blog/mpt-30b",
@@ -235,4 +241,10 @@ register_model_info(
     "InternLM",
     "https://huggingface.co/internlm/internlm-chat-7b",
     "InternLM is a multi-language large-scale language model (LLM), developed by SHLAB.",
+)
+register_model_info(
+    ["Qwen-7B-Chat"],
+    "Qwen",
+    "https://huggingface.co/Qwen/Qwen-7B-Chat",
+    "Qwen is a multi-language large-scale language model (LLM), developed by Damo Academy.",
 )
