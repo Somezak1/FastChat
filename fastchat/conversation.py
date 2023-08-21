@@ -53,6 +53,21 @@ class Conversation:
     stop_str: str = None
     # Stops generation if meeting any token in this list
     stop_token_ids: List[int] = None
+    debug: bool = False
+
+    def __post_init__(self):
+        if self.debug:
+            print(f"\nUser: {repr(self.roles[0])}")
+            print(f"Assistant: {repr(self.roles[1])}")
+            self.roles = ['{User}', '{Assistant}']
+
+            if len(self.messages) == 2:
+                print(f"Q0: {repr(self.messages[0][1])}")
+                print(f"A0: {repr(self.messages[1][1])}")
+                self.messages2 = []
+                self.messages2.append([self.roles[0], '{Q0}'])
+                self.messages2.append([self.roles[1], '{A0}'])
+                self.messages = self.messages2
 
     # Conversation(
     #     name="one_shot",
@@ -77,7 +92,12 @@ class Conversation:
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
-        system_prompt = self.system_template.format(system_message=self.system_message)
+        if self.debug:
+            system_prompt = '{Prompt}'
+        else:
+            system_prompt = self.system_template.format(system_message=self.system_message)
+            print(f"\nPrompt: {repr(system_prompt)}")
+
         if self.sep_style == SeparatorStyle.ADD_COLON_SINGLE:
             ret = system_prompt + self.sep
             for role, message in self.messages:
@@ -959,6 +979,34 @@ register_conv_template(
 
 
 if __name__ == "__main__":
+    template_name = 'one_shot'
+
+    pre_conv = get_conv_template(template_name)
+    pre_conv.get_prompt()
+
+    for idx, seq in enumerate(
+            [["{Q1}", None], ["{Q1}", "{A1}", "{Q2}", None], ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", None]]):
+        pre_conv = get_conv_template(template_name)
+        temp = Conversation(
+            name=pre_conv.name,
+            system_template=pre_conv.system_template,
+            system_message=pre_conv.system_message,
+            roles=pre_conv.roles,
+            messages=pre_conv.messages,
+            offset=pre_conv.offset,
+            sep_style=pre_conv.sep_style,
+            sep=pre_conv.sep,
+            sep2=pre_conv.sep2,
+            stop_str=pre_conv.stop_str,
+            stop_token_ids=pre_conv.stop_token_ids,
+            debug=True
+        )
+        for i, content in enumerate(seq):
+            temp.append_message(temp.roles[i % 2], content)
+
+        prompt = temp.get_prompt()
+        print(f"第 {idx + 1} 次提问: ", repr(prompt + ""))
+
     print("Vicuna template:")
     conv = get_conv_template("vicuna_v1.1")
     conv.append_message(conv.roles[0], "Hello!")
