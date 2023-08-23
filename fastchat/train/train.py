@@ -134,6 +134,7 @@ def preprocess(
         {'from': 'gpt', 'value': 'I can chat with you.'}
     ]]
     '''
+    # 注意, 这里使用的是vicuna的对话模板
     conv = get_conversation_template("vicuna")
     # conv: Conversation(name='vicuna_v1.1', ...)
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
@@ -206,13 +207,13 @@ def preprocess(
     sep = conv.sep + conv.roles[1] + ": "
     # sep: ' ASSISTANT: '
     for conversation, target in zip(conversations, targets):
-        # conversation:
+        # conversation: 这次会话按对话模板处理后的文本
         # "A chat between a curious user and an artificial intelligence assistant.
         # The assistant gives helpful, detailed, and polite answers to the user's questions.
         # USER: Who are you? ASSISTANT: I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).</s>
         # USER: What can you do? ASSISTANT: I can chat with you.</s>"
 
-        # target:
+        # target: conversation tokenize 同时 padding/truncate
         # tensor([1, 319, 13563, 1546, 263, 12758, 1404, 322, 385, 23116,
         #          21082, 20255, 29889, 450, 20255, 4076, 8444, 29892, 13173, 29892,
         #          322, 1248, 568, 6089, 304, 278, 1404, 29915, 29879, 5155,
@@ -269,54 +270,60 @@ def preprocess(
             if len(parts) != 2:
                 break
             parts[0] += sep
-            # parts[0]+parts[1]==rou
+            # parts[0]+parts[1]==turn
             # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
             # i=0  instruction_len: 42
 
+            # - 2 的由来, 用于去除首尾的token
+            #     0    id:        1   token: <s>
+            #     1    id:      319   token: ▁A
+            #     2    id:    13563   token: ▁chat
+            #     3    id:     1546   token: ▁between
+            #     4    id:      263   token: ▁a
+            #     5    id:    12758   token: ▁curious
+            #     6    id:     1404   token: ▁user
+            #     7    id:      322   token: ▁and
+            #     8    id:      385   token: ▁an
+            #     9    id:    23116   token: ▁artificial
+            #    10    id:    21082   token: ▁intelligence
+            #    11    id:    20255   token: ▁assistant
+            #    12    id:    29889   token: .
+            #    13    id:      450   token: ▁The
+            #    14    id:    20255   token: ▁assistant
+            #    15    id:     4076   token: ▁gives
+            #    16    id:     8444   token: ▁helpful
+            #    17    id:    29892   token: ,
+            #    18    id:    13173   token: ▁detailed
+            #    19    id:    29892   token: ,
+            #    20    id:      322   token: ▁and
+            #    21    id:     1248   token: ▁pol
+            #    22    id:      568   token: ite
+            #    23    id:     6089   token: ▁answers
+            #    24    id:      304   token: ▁to
+            #    25    id:      278   token: ▁the
+            #    26    id:     1404   token: ▁user
+            #    27    id:    29915   token: '
+            #    28    id:    29879   token: s
+            #    29    id:     5155   token: ▁questions
+            #    30    id:    29889   token: .
+            #    31    id:     3148   token: ▁US
+            #    32    id:     1001   token: ER
+            #    33    id:    29901   token: :
+            #    34    id:    11644   token: ▁Who
+            #    35    id:      526   token: ▁are
+            #    36    id:      366   token: ▁you
+            #    37    id:    29973   token: ?
+            #    38    id:      319   token: ▁A
+            #    39    id:     1799   token: SS
+            #    40    id:     9047   token: IST
+            #    41    id:    13566   token: ANT
+            #    42    id:    29901   token: :
+            #    43    id:    29871   token: ▁
+
             # Ignore the user instructions
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
             cur_len += turn_len
-
-            # i=0
-            # temp = tokenizer.tokenize(rou)
-            # for i, j in zip(temp, target[1:len(temp) + 1]):
-            #     print(i, '  ', j.item())
-            #
-            # ▁A - 100
-            # ▁chat - 100
-            # ▁between - 100
-            # ......
-            # ?    -100
-            # ▁A - 100
-            # SS - 100
-            # IST - 100
-            # ANT - 100
-            # :    -100
-            # ▁I 306
-            # ▁am 626
-            # ▁Vic 13423
-            # una 4347
-            # , 29892
-            # ▁a 263
-            # ▁language 4086
-            # ▁model 1904
-            # ▁trained 16370
-            # ▁by 491
-            # ▁research 5925
-            # ers 414
-            # ▁from 515
-            # ▁Lar 8218
-            # ge 479
-            # ▁Model 8125
-            # ▁Systems 23985
-            # ▁Organ 9205
-            # ization 2133
-            # ▁( 313
-            # L  29931
-            # MS 4345
-            # YS 21554
-            # ). 467
 
         target[cur_len:] = IGNORE_TOKEN_ID
 
@@ -327,6 +334,8 @@ def preprocess(
 
         if cur_len < tokenizer.model_max_length:
             if cur_len != total_len:
+                # 此时按理说cur_len应该落在非padding内容的末尾
+                # 如果没落在末尾就会把整个target里的内容全部忽略
                 target[:] = IGNORE_TOKEN_ID
                 rank0_print(
                     f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
@@ -435,6 +444,136 @@ class LazySupervisedDataset(Dataset):
         #          False, False, False, False, False, False, False, False, False, False,
         #          False, False, False, False, False, False, False, False]])
 
+        # for i, (id, token, label, attn) in enumerate(zip(ret['input_ids'], tokenizer.convert_ids_to_tokens(ret['input_ids']), ret['labels'], ret['attention_mask'])):
+        #     print(f"{i:5d}    id: {id:8d}   token: {token:15s}   label: {label:8d}  attn: {attn}")
+        #     0    id:        1   token: <s>               label:     -100  attn: True
+        #     1    id:      319   token: ▁A                label:     -100  attn: True
+        #     2    id:    13563   token: ▁chat             label:     -100  attn: True
+        #     3    id:     1546   token: ▁between          label:     -100  attn: True
+        #     4    id:      263   token: ▁a                label:     -100  attn: True
+        #     5    id:    12758   token: ▁curious          label:     -100  attn: True
+        #     6    id:     1404   token: ▁user             label:     -100  attn: True
+        #     7    id:      322   token: ▁and              label:     -100  attn: True
+        #     8    id:      385   token: ▁an               label:     -100  attn: True
+        #     9    id:    23116   token: ▁artificial       label:     -100  attn: True
+        #    10    id:    21082   token: ▁intelligence     label:     -100  attn: True
+        #    11    id:    20255   token: ▁assistant        label:     -100  attn: True
+        #    12    id:    29889   token: .                 label:     -100  attn: True
+        #    13    id:      450   token: ▁The              label:     -100  attn: True
+        #    14    id:    20255   token: ▁assistant        label:     -100  attn: True
+        #    15    id:     4076   token: ▁gives            label:     -100  attn: True
+        #    16    id:     8444   token: ▁helpful          label:     -100  attn: True
+        #    17    id:    29892   token: ,                 label:     -100  attn: True
+        #    18    id:    13173   token: ▁detailed         label:     -100  attn: True
+        #    19    id:    29892   token: ,                 label:     -100  attn: True
+        #    20    id:      322   token: ▁and              label:     -100  attn: True
+        #    21    id:     1248   token: ▁pol              label:     -100  attn: True
+        #    22    id:      568   token: ite               label:     -100  attn: True
+        #    23    id:     6089   token: ▁answers          label:     -100  attn: True
+        #    24    id:      304   token: ▁to               label:     -100  attn: True
+        #    25    id:      278   token: ▁the              label:     -100  attn: True
+        #    26    id:     1404   token: ▁user             label:     -100  attn: True
+        #    27    id:    29915   token: '                 label:     -100  attn: True
+        #    28    id:    29879   token: s                 label:     -100  attn: True
+        #    29    id:     5155   token: ▁questions        label:     -100  attn: True
+        #    30    id:    29889   token: .                 label:     -100  attn: True
+        #    31    id:     3148   token: ▁US               label:     -100  attn: True
+        #    32    id:     1001   token: ER                label:     -100  attn: True
+        #    33    id:    29901   token: :                 label:     -100  attn: True
+        #    34    id:    11644   token: ▁Who              label:     -100  attn: True
+        #    35    id:      526   token: ▁are              label:     -100  attn: True
+        #    36    id:      366   token: ▁you              label:     -100  attn: True
+        #    37    id:    29973   token: ?                 label:     -100  attn: True
+        #    38    id:      319   token: ▁A                label:     -100  attn: True
+        #    39    id:     1799   token: SS                label:     -100  attn: True
+        #    40    id:     9047   token: IST               label:     -100  attn: True
+        #    41    id:    13566   token: ANT               label:     -100  attn: True
+        #    42    id:    29901   token: :                 label:     -100  attn: True
+        #    43    id:      306   token: ▁I                label:      306  attn: True
+        #    44    id:      626   token: ▁am               label:      626  attn: True
+        #    45    id:    13423   token: ▁Vic              label:    13423  attn: True
+        #    46    id:     4347   token: una               label:     4347  attn: True
+        #    47    id:    29892   token: ,                 label:    29892  attn: True
+        #    48    id:      263   token: ▁a                label:      263  attn: True
+        #    49    id:     4086   token: ▁language         label:     4086  attn: True
+        #    50    id:     1904   token: ▁model            label:     1904  attn: True
+        #    51    id:    16370   token: ▁trained          label:    16370  attn: True
+        #    52    id:      491   token: ▁by               label:      491  attn: True
+        #    53    id:     5925   token: ▁research         label:     5925  attn: True
+        #    54    id:      414   token: ers               label:      414  attn: True
+        #    55    id:      515   token: ▁from             label:      515  attn: True
+        #    56    id:     8218   token: ▁Lar              label:     8218  attn: True
+        #    57    id:      479   token: ge                label:      479  attn: True
+        #    58    id:     8125   token: ▁Model            label:     8125  attn: True
+        #    59    id:    23985   token: ▁Systems          label:    23985  attn: True
+        #    60    id:     9205   token: ▁Organ            label:     9205  attn: True
+        #    61    id:     2133   token: ization           label:     2133  attn: True
+        #    62    id:      313   token: ▁(                label:      313  attn: True
+        #    63    id:    29931   token: L                 label:    29931  attn: True
+        #    64    id:     4345   token: MS                label:     4345  attn: True
+        #    65    id:    21554   token: YS                label:    21554  attn: True
+        #    66    id:      467   token: ).                label:      467  attn: True
+        #    67    id:        2   token: </s>              label:        2  attn: True
+        #    68    id:     3148   token: ▁US               label:     -100  attn: True
+        #    69    id:     1001   token: ER                label:     -100  attn: True
+        #    70    id:    29901   token: :                 label:     -100  attn: True
+        #    71    id:     1724   token: ▁What             label:     -100  attn: True
+        #    72    id:      508   token: ▁can              label:     -100  attn: True
+        #    73    id:      366   token: ▁you              label:     -100  attn: True
+        #    74    id:      437   token: ▁do               label:     -100  attn: True
+        #    75    id:    29973   token: ?                 label:     -100  attn: True
+        #    76    id:      319   token: ▁A                label:     -100  attn: True
+        #    77    id:     1799   token: SS                label:     -100  attn: True
+        #    78    id:     9047   token: IST               label:     -100  attn: True
+        #    79    id:    13566   token: ANT               label:     -100  attn: True
+        #    80    id:    29901   token: :                 label:     -100  attn: True
+        #    81    id:      306   token: ▁I                label:      306  attn: True
+        #    82    id:      508   token: ▁can              label:      508  attn: True
+        #    83    id:    13563   token: ▁chat             label:    13563  attn: True
+        #    84    id:      411   token: ▁with             label:      411  attn: True
+        #    85    id:      366   token: ▁you              label:      366  attn: True
+        #    86    id:    29889   token: .                 label:    29889  attn: True
+        #    87    id:        2   token: </s>              label:        2  attn: True
+        #    88    id:        0   token: <unk>             label:     -100  attn: False
+        #    89    id:        0   token: <unk>             label:     -100  attn: False
+        #    90    id:        0   token: <unk>             label:     -100  attn: False
+        #    91    id:        0   token: <unk>             label:     -100  attn: False
+        #    92    id:        0   token: <unk>             label:     -100  attn: False
+        #    93    id:        0   token: <unk>             label:     -100  attn: False
+        #    94    id:        0   token: <unk>             label:     -100  attn: False
+        #    95    id:        0   token: <unk>             label:     -100  attn: False
+        #    96    id:        0   token: <unk>             label:     -100  attn: False
+        #    97    id:        0   token: <unk>             label:     -100  attn: False
+        #    98    id:        0   token: <unk>             label:     -100  attn: False
+        #    99    id:        0   token: <unk>             label:     -100  attn: False
+        #   100    id:        0   token: <unk>             label:     -100  attn: False
+        #   101    id:        0   token: <unk>             label:     -100  attn: False
+        #   102    id:        0   token: <unk>             label:     -100  attn: False
+        #   103    id:        0   token: <unk>             label:     -100  attn: False
+        #   104    id:        0   token: <unk>             label:     -100  attn: False
+        #   105    id:        0   token: <unk>             label:     -100  attn: False
+        #   106    id:        0   token: <unk>             label:     -100  attn: False
+        #   107    id:        0   token: <unk>             label:     -100  attn: False
+        #   108    id:        0   token: <unk>             label:     -100  attn: False
+        #   109    id:        0   token: <unk>             label:     -100  attn: False
+        #   110    id:        0   token: <unk>             label:     -100  attn: False
+        #   111    id:        0   token: <unk>             label:     -100  attn: False
+        #   112    id:        0   token: <unk>             label:     -100  attn: False
+        #   113    id:        0   token: <unk>             label:     -100  attn: False
+        #   114    id:        0   token: <unk>             label:     -100  attn: False
+        #   115    id:        0   token: <unk>             label:     -100  attn: False
+        #   116    id:        0   token: <unk>             label:     -100  attn: False
+        #   117    id:        0   token: <unk>             label:     -100  attn: False
+        #   118    id:        0   token: <unk>             label:     -100  attn: False
+        #   119    id:        0   token: <unk>             label:     -100  attn: False
+        #   120    id:        0   token: <unk>             label:     -100  attn: False
+        #   121    id:        0   token: <unk>             label:     -100  attn: False
+        #   122    id:        0   token: <unk>             label:     -100  attn: False
+        #   123    id:        0   token: <unk>             label:     -100  attn: False
+        #   124    id:        0   token: <unk>             label:     -100  attn: False
+        #   125    id:        0   token: <unk>             label:     -100  attn: False
+        #   126    id:        0   token: <unk>             label:     -100  attn: False
+        #   127    id:        0   token: <unk>             label:     -100  attn: False
         self.cached_data_dict[i] = ret
 
         return ret
@@ -461,6 +600,7 @@ def make_supervised_data_module(
 
 
 def train():
+    # 注意train()使用的是vicuna的对话模板
     global local_rank
 
     parser = transformers.HfArgumentParser(
