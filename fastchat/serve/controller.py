@@ -358,7 +358,7 @@ async def worker_api_get_status(request: Request):
     return "success"
 
 
-if __name__ == "__main__":
+def create_controller():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
     # 如果controller和worker不在同一台机器上开启, 那么host参数要填controller的ip地址
@@ -374,4 +374,9 @@ if __name__ == "__main__":
     # args: Namespace(host='localhost', port=21001, dispatch_method='shortest_queue')
 
     controller = Controller(args.dispatch_method)
+    return args, controller
+
+
+if __name__ == "__main__":
+    args, controller = create_controller()
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
