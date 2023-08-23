@@ -600,7 +600,7 @@ def make_supervised_data_module(
 
 
 def train():
-    # 注意train()使用的是vicuna的对话模板
+    # 注意用该代码训练其他模型时, 需要自定义Model/Tokenizer/Conversation以及训练代码, 这和推断一样
     global local_rank
 
     parser = transformers.HfArgumentParser(

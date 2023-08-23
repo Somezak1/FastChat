@@ -243,6 +243,7 @@ def main(args):
             args.conv_template,
             # args.conv_template: None
             args.conv_system_msg,
+            # args.conv_system_msg: None
             args.temperature,
             # args.temperature: 默认是0.7, 但此处为了复现改为0
             args.repetition_penalty,

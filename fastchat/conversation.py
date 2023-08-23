@@ -33,25 +33,25 @@ class SeparatorStyle(IntEnum):
 class Conversation:
     """A class that manages prompt templates and keeps all conversation history."""
 
-    # The name of this template
+    # The name of this template, Conversation的代号
     name: str
-    # The template of the system prompt
+    # The template of the system prompt, 系统提示语
     system_template: str = "{system_message}"
-    # The system message
+    # The system message, 系统提示语
     system_message: str = ""
     # The names of two roles
     roles: List[str] = (("USER", "ASSISTANT"),)
     # All messages. Each item is (role, message).
     messages: List[List[str]] = ()
-    # The number of few shot examples
+    # The number of few shot examples, 没啥用的参数
     offset: int = 0
-    # The separator style and configurations
+    # The separator style and configurations, 以下三个参数决定系统提示语以及问答之间如何拼接
     sep_style: SeparatorStyle = SeparatorStyle.ADD_COLON_SINGLE
     sep: str = "\n"
     sep2: str = None
-    # Stop criteria (the default one is EOS token)
+    # Stop criteria (the default one is EOS token), 对模型输出结果中的stop_str进行适当过滤
     stop_str: str = None
-    # Stops generation if meeting any token in this list
+    # Stops generation if meeting any token in this list, 模型输出的停止符, 如不指定则会在推断时使用[tokenizer.eos_token_id]作为实际停止符
     stop_token_ids: List[int] = None
     debug: bool = False
 
