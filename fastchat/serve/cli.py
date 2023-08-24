@@ -284,6 +284,8 @@ if __name__ == "__main__":
     # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/OriginOne/ --temperature 0
     # or
     # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/  --temperature 0
+    # 注意: 以python3 -m fastchat.serve.cli这样的模块方式运行代码, 代码中使用的所有类似from fastchat.serve.inference import ChatIO的操作
+    #      都不再是从conda环境的fastchat包中引用, 而是将本地的fastchat文件夹当做一整个包看待, 因此上述类似import都会成为本地的引用
 
     # 接受必要的参数信息
     parser = argparse.ArgumentParser()

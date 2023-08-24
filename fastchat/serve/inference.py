@@ -681,7 +681,8 @@ def chat_loop(
             "stop": conv.stop_str,
             # if conv.name == 'one_shot', conv.stop_str: "###"
             # if conv.name == 'vicuna_v1.1', conv.stop_str: None
-            "stop_token_ids": conv.stop_token_ids,
+            "stop_token_ids": conv.stop_token_ids.copy(),
+            # stop_token_ids是Conversation的类变量, 对其append会直接改变类变量
             # if conv.name == 'one_shot', conv.stop_token_ids: None
             # if conv.name == 'vicuna_v1.1', conv.stop_token_ids: None
             "echo": False,
