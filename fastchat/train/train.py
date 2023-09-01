@@ -135,7 +135,11 @@ def preprocess(
     ]]
     '''
     # 注意, 这里使用的是vicuna的对话模板
-    conv = get_conversation_template("vicuna")
+    conv_name = "vicuna_v1.1"
+    conv = get_conversation_template(conv_name)
+    if conv_name == "llama-2":
+        conv.system_message = "You are a helpful assistant. 你是一个乐于助人的助手。"
+        conv.sep2 = "</s>"
     # conv: Conversation(name='vicuna_v1.1', ...)
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
     # roles: {"human": 'USER', "gpt": 'ASSISTANT'}
@@ -204,7 +208,10 @@ def preprocess(
     assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets. Only compute loss on the assistant outputs.
-    sep = conv.sep + conv.roles[1] + ": "
+    if conv_name == 'vicuna_v1.1':
+        sep = conv.sep + conv.roles[1] + ": "
+    elif conv_name == 'llama-2':
+        sep = f' {conv.roles[1]} '
     # sep: ' ASSISTANT: '
     for conversation, target in zip(conversations, targets):
         # conversation: 这次会话按对话模板处理后的文本
@@ -263,7 +270,8 @@ def preprocess(
 
             if turn == "":
                 break
-            turn_len = len(tokenizer(turn).input_ids)
+            # -1 是为了去除tokenizer默认加在开头的'<s>'
+            turn_len = len(tokenizer(turn+conv.sep2).input_ids) - 1
 
             parts = turn.split(sep)
             # sep: ' ASSISTANT: '
@@ -272,6 +280,9 @@ def preprocess(
             parts[0] += sep
             # parts[0]+parts[1]==turn
             # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
+            # conv_name=="vicuna_v1.1" 时 sep = ' ASSISTANT: '
+            # conv_name=="llama-2" 时 sep = ' [/INST] '
+            # 不管conv_name等于哪个, 其sep的末尾都是一个' ', 在sep后面不接字符时, ' '会被tokenizer单独看待; 如果sep后面接了字符比如'I', 则空格会被算成'_I'
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
             # i=0  instruction_len: 42
 
