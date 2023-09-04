@@ -98,6 +98,9 @@ def generate_stream(
     "### Human: Who are you"
     "### Assistant:"
 
+    if hasattr(model, "device"):
+        device = model.device
+
     # Read parameters
     prompt = params["prompt"]
     len_prompt = len(prompt)
@@ -247,7 +250,8 @@ def generate_stream(
             if model.config.is_encoder_decoder:
                 out = model.decoder(
                     input_ids=torch.as_tensor(
-                        [[token] if not sent_interrupt else output_ids], device=device
+                        [[token] if not sent_interrupt else output_ids],
+                        device=device,
                     ),
                     encoder_hidden_states=encoder_output,
                     use_cache=True,
@@ -259,7 +263,8 @@ def generate_stream(
             else:
                 out = model(
                     input_ids=torch.as_tensor(
-                        [[token] if not sent_interrupt else output_ids], device=device
+                        [[token] if not sent_interrupt else output_ids],
+                        device=device,
                     ),
                     use_cache=True,
                     past_key_values=past_key_values if not sent_interrupt else None,
