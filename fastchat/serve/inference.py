@@ -228,6 +228,7 @@ def generate_stream(
 
     past_key_values = out = None
     sent_interrupt = False
+    finish_reason = None
     for i in range(max_new_tokens):
         # 模型在一次回答中能够输出的最长回答是max_new_tokens个token
         if i == 0:  # prefill
@@ -376,12 +377,11 @@ def generate_stream(
             break
 
     # Finish stream event, which contains finish reason
-    if i == max_new_tokens - 1:
-        finish_reason = "length"
-    elif stopped:
-        finish_reason = "stop"
     else:
-        finish_reason = None
+        finish_reason = "length"
+
+    if stopped:
+        finish_reason = "stop"
 
     yield {
         "text": output,
