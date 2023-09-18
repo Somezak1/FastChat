@@ -114,7 +114,6 @@ def generate_stream(
     # stop_str也部分扮演了停止符的作用
     stop_token_ids = params.get("stop_token_ids", None) or []
     # stop_token_ids: [2]
-    stop_token_ids.append(tokenizer.eos_token_id)
     # tokenizer.eos_token_id: 2
     # tokenizer.decode(tokenizer.eos_token_id): '</s>'
 
@@ -198,6 +197,8 @@ def generate_stream(
     # 上面几种调用方式的差别就在温度和"stop"
     # ①附带温度为0的调用结果与③的结果一致
     # ②附带温度为0的调用结果与④的结果一致
+    if tokenizer.eos_token_id not in stop_token_ids:
+        stop_token_ids.append(tokenizer.eos_token_id)
 
     logits_processor = prepare_logits_processor(
         temperature, repetition_penalty, top_p, top_k
@@ -399,6 +400,8 @@ def generate_stream(
     torch.cuda.empty_cache()
     if device == "xpu":
         torch.xpu.empty_cache()
+    if device == "npu":
+        torch.npu.empty_cache()
 
 
 class ChatIO(abc.ABC):
