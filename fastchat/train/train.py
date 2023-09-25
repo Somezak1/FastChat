@@ -32,6 +32,7 @@ from transformers.trainer_pt_utils import LabelSmoother
 
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
+from langdetect import detect
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 # IGNORE_TOKEN_ID: -100
@@ -46,6 +47,12 @@ class ModelArguments:
 class DataArguments:
     data_path: str = field(
         default=None, metadata={"help": "Path to the training data."}
+    )
+    company_path: str = field(
+        default=None, metadata={"help": "Path to the company data."}
+    )
+    identity_path: str = field(
+        default=None, metadata={"help": "Path to the identity data."}
     )
     eval_data_path: str = field(
         default=None, metadata={"help": "Path to the evaluation data."}
@@ -73,15 +80,32 @@ def rank0_print(*args):
         print(*args)
 
 
-def trainer_save_model_safe(trainer: transformers.Trainer):
-    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-    from torch.distributed.fsdp import StateDictType, FullStateDictConfig
+def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
+    """Collects the state dict and dump to disk."""
+    state_dict = trainer.model.state_dict()
+    if trainer.args.should_save:
+        cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
+        del state_dict
+        trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
 
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(
-        trainer.model, StateDictType.FULL_STATE_DICT, save_policy
-    ):
-        trainer.save_model()
+
+@dataclass
+class DataCollatorForSupervisedDataset(object):
+    """Collate examples for supervised fine-tuning."""
+
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )
+        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-100)
+        return dict(
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+        )
 
 
 def _z3_params_to_fetch(param_list):
@@ -137,10 +161,11 @@ def preprocess(
     ]]
     '''
     # 注意, 这里使用的是vicuna的对话模板
-    conv_name = "vicuna_v1.1"
+    conv_name = "llama-2"
     conv = get_conversation_template(conv_name)
+    if conv_name == 'vicuna_v1.1':
+        conv.sep2 = '</s> '
     if conv_name == "llama-2":
-        conv.system_message = "You are a helpful assistant. 你是一个乐于助人的助手。"
         conv.sep2 = "</s>"
     # conv: Conversation(name='vicuna_v1.1', ...)
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
@@ -159,6 +184,13 @@ def preprocess(
         if roles[source[0]["from"]] != conv.roles[0]:
             # Skip the first one if it is not from human
             source = source[1:]
+
+        if conv_name == 'llama-2':
+            lang = detect(source[0]["value"])
+            if lang == 'zh-cn':
+                conv.system_message = "你是一个乐于助人、恭敬而诚实的助手。在保证安全的前提下，回答要尽可能有帮助。如果一个问题没有任何意义，或者与事实不一致，解释为什么，而不是回答不正确的问题。如果你不知道问题的答案，请不要分享虚假信息。"
+            else:
+                conv.system_message = "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."
 
         conv.messages = []
         for j, sentence in enumerate(source):
@@ -185,8 +217,8 @@ def preprocess(
     # Tokenize conversations
     input_ids = tokenizer(
         conversations,
-        return_tensors="pt",
-        padding="max_length",
+        # return_tensors="pt",
+        # padding="max_length",
         max_length=tokenizer.model_max_length,
         truncation=True,
     ).input_ids
@@ -205,17 +237,19 @@ def preprocess(
     #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     #          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     #          0, 0, 0, 0, 0, 0, 0, 0]])
-    targets = input_ids.clone()
+    targets = []
 
-    assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
+    # assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets. Only compute loss on the assistant outputs.
     if conv_name == 'vicuna_v1.1':
-        sep = conv.sep + conv.roles[1] + ": "
+        sep = conv.sep + conv.roles[1] + ":"
     elif conv_name == 'llama-2':
         sep = f' {conv.roles[1]} '
-    # sep: ' ASSISTANT: '
-    for conversation, target in zip(conversations, targets):
+
+    for k in range(len(conversations)):
+        conversation = conversations[k]
+        target = torch.LongTensor(input_ids[k])
         # conversation: 这次会话按对话模板处理后的文本
         # "A chat between a curious user and an artificial intelligence assistant.
         # The assistant gives helpful, detailed, and polite answers to the user's questions.
@@ -273,7 +307,10 @@ def preprocess(
             if turn == "":
                 break
             # -1 是为了去除tokenizer默认加在开头的'<s>'
-            turn_len = len(tokenizer(turn+conv.sep2).input_ids) - 1
+            if conv_name == 'vicuna_v1.1':
+                turn_len = len(tokenizer(turn + conv.sep2).input_ids) - 1 - 1
+            else:
+                turn_len = len(tokenizer(turn + conv.sep2).input_ids) - 1
 
             parts = turn.split(sep)
             # sep: ' ASSISTANT: '
@@ -339,6 +376,9 @@ def preprocess(
             cur_len += turn_len
 
         target[cur_len:] = IGNORE_TOKEN_ID
+        targets.append(target)
+        if conv_name == 'vicuna_v1.1':
+            cur_len += 1
 
         if False:  # Inspect and check the correctness of masking
             z = target.clone()
@@ -356,9 +396,8 @@ def preprocess(
                 )
 
     return dict(
-        input_ids=input_ids,
+        input_ids=[torch.LongTensor(item) for item in input_ids],
         labels=targets,
-        attention_mask=input_ids.ne(tokenizer.pad_token_id),
     )
 
 
@@ -410,7 +449,6 @@ class LazySupervisedDataset(Dataset):
         ret = dict(
             input_ids=ret["input_ids"][0],
             labels=ret["labels"][0],
-            attention_mask=ret["attention_mask"][0],
         )
         # ret['input_ids']:
         # tensor([[1, 319, 13563, 1546, 263, 12758, 1404, 322, 385, 23116,
@@ -602,6 +640,9 @@ def make_supervised_data_module(
     rank0_print("Loading data...")
 
     train_json = json.load(open(data_args.data_path, "r"))
+    company_json = json.load(open(data_args.company_path, "r"))
+    identity_json = json.load(open(data_args.identity_path, "r"))
+    train_json = train_json + company_json + identity_json
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
@@ -656,10 +697,11 @@ def train():
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
 
     # Start trainner
     trainer = Trainer(
-        model=model, tokenizer=tokenizer, args=training_args, **data_module
+        model=model, tokenizer=tokenizer, args=training_args, data_collator=data_collator, **data_module
     )
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
@@ -669,7 +711,7 @@ def train():
     # Save model
     model.config.use_cache = True
     trainer.save_state()
-    trainer_save_model_safe(trainer)
+    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
 
 
 if __name__ == "__main__":
