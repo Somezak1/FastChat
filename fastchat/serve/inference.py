@@ -431,6 +431,7 @@ def chat_loop(
     # num_gpus: 1
     max_gpu_memory: str,
     # max_gpu_memory: None
+    dtype: Optional[torch.dtype],
     load_8bit: bool,
     # load_8bit: False
     cpu_offloading: bool,
@@ -466,6 +467,7 @@ def chat_loop(
         device=device,
         num_gpus=num_gpus,
         max_gpu_memory=max_gpu_memory,
+        dtype=dtype,
         load_8bit=load_8bit,
         cpu_offloading=cpu_offloading,
         gptq_config=gptq_config,

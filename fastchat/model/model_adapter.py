@@ -31,9 +31,7 @@ from fastchat.modules.gptq import GptqConfig, load_gptq_quantized
 from fastchat.modules.awq import AWQConfig, load_awq_quantized
 from fastchat.conversation import Conversation, get_conv_template
 from fastchat.model.compression import load_compress_model
-from fastchat.model.llama_condense_monkey_patch import (
-    replace_llama_with_condense,
-)
+from fastchat.model.llama_condense_monkey_patch import replace_llama_with_condense
 from fastchat.model.model_chatglm import generate_stream_chatglm
 from fastchat.model.model_codet5p import generate_stream_codet5p
 from fastchat.model.model_falcon import generate_stream_falcon
@@ -158,6 +156,7 @@ def load_model(
     # num_gpus: 1
     max_gpu_memory: Optional[str] = None,
     # max_gpu_memory: None
+    dtype: Optional[torch.dtype] = None,
     load_8bit: bool = False,
     # load_8bit: False
     cpu_offloading: bool = False,
@@ -297,6 +296,9 @@ def load_model(
         return model, tokenizer
     kwargs["revision"] = revision
 
+    if dtype is not None:  # Overwrite dtype if it is provided in the arguments.
+        kwargs["torch_dtype"] = dtype
+
     # Load model
     model, tokenizer = adapter.load_model(model_path, kwargs)
 
@@ -408,6 +410,13 @@ def add_model_args(parser):
         "--max-gpu-memory",
         type=str,
         help="The maximum memory per GPU for storing model weights. Use a string like '13Gib'",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["float32", "float16", "bfloat16"],
+        help="Override the default dtype. If not set, it will use float16 on GPU and float32 on CPU.",
+        default=None,
     )
     parser.add_argument(
         "--load-8bit", action="store_true", help="Use 8-bit quantization"
@@ -640,15 +649,18 @@ class LongChatAdapter(BaseModelAdapter):
         return get_conv_template("vicuna_v1.1")
 
 
-class CodeT5pAdapter(BaseModelAdapter):
-    """The model adapter for Salesforce/codet5p-6b"""
+class GoogleT5Adapter(BaseModelAdapter):
+    """The model adapter for google/Flan based models, such as Salesforce/codet5p-6b, lmsys/fastchat-t5-3b-v1.0, flan-t5-*, flan-ul2"""
 
     def match(self, model_path: str):
-        return "codet5p" in model_path.lower()
+        return any(
+            model_str in model_path.lower()
+            for model_str in ["flan-", "fastchat-t5", "codet5p"]
+        )
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         revision = from_pretrained_kwargs.get("revision", "main")
-        tokenizer = AutoTokenizer.from_pretrained(model_path, revision=revision)
+        tokenizer = T5Tokenizer.from_pretrained(model_path, revision=revision)
         model = AutoModelForSeq2SeqLM.from_pretrained(
             model_path,
             low_cpu_mem_usage=True,
@@ -656,28 +668,6 @@ class CodeT5pAdapter(BaseModelAdapter):
             **from_pretrained_kwargs,
         )
         return model, tokenizer
-
-
-class T5Adapter(BaseModelAdapter):
-    """The model adapter for lmsys/fastchat-t5-3b-v1.0"""
-
-    def match(self, model_path: str):
-        return "t5" in model_path.lower()
-
-    def load_model(self, model_path: str, from_pretrained_kwargs: dict):
-        revision = from_pretrained_kwargs.get("revision", "main")
-        tokenizer = T5Tokenizer.from_pretrained(model_path, revision=revision)
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_path, low_cpu_mem_usage=True, **from_pretrained_kwargs
-        )
-        return model, tokenizer
-
-
-class FlanAdapter(T5Adapter):
-    """The model adapter for flan-t5-*, flan-ul2"""
-
-    def match(self, model_path: str):
-        return "flan" in model_path.lower()
 
 
 class KoalaAdapter(BaseModelAdapter):
@@ -1641,9 +1631,7 @@ register_model_adapter(PeftModelAdapter)
 register_model_adapter(VicunaAdapter)
 register_model_adapter(AiroborosAdapter)
 register_model_adapter(LongChatAdapter)
-register_model_adapter(CodeT5pAdapter)
-register_model_adapter(T5Adapter)
-register_model_adapter(FlanAdapter)
+register_model_adapter(GoogleT5Adapter)
 register_model_adapter(KoalaAdapter)
 register_model_adapter(AlpacaAdapter)
 register_model_adapter(ChatGLMAdapter)
