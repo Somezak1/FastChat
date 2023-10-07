@@ -318,10 +318,10 @@ def preprocess(
                 break
             parts[0] += sep
             # parts[0]+parts[1]==turn
-            # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
             # conv_name=="vicuna_v1.1" 时 sep = ' ASSISTANT: '
             # conv_name=="llama-2" 时 sep = ' [/INST] '
             # 不管conv_name等于哪个, 其sep的末尾都是一个' ', 在sep后面不接字符时, ' '会被tokenizer单独看待; 如果sep后面接了字符比如'I', 则空格会被算成'_I'
+            # "-2" is hardcoded for the Llama tokenizer to make the offset correct.
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
             # i=0  instruction_len: 42
 
@@ -371,9 +371,17 @@ def preprocess(
             #    42    id:    29901   token: :
             #    43    id:    29871   token: ▁
 
+            if i != 0 and not tokenizer.legacy:
+                # The legacy and non-legacy modes handle special tokens differently
+                instruction_len -= 1
+
             # Ignore the user instructions
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
             cur_len += turn_len
+
+            if i != 0 and not tokenizer.legacy:
+                # The legacy and non-legacy modes handle special tokens differently
+                cur_len -= 1
 
         target[cur_len:] = IGNORE_TOKEN_ID
         targets.append(target)
@@ -384,6 +392,7 @@ def preprocess(
             z = target.clone()
             z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.unk_token_id, z)
             rank0_print(tokenizer.decode(z))
+            exit()
 
         if cur_len < tokenizer.model_max_length:
             if cur_len != total_len:
@@ -392,7 +401,7 @@ def preprocess(
                 target[:] = IGNORE_TOKEN_ID
                 rank0_print(
                     f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
+                    f" #turn = {len(turns) - 1}. (ignored)"
                 )
 
     return dict(
