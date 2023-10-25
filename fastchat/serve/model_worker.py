@@ -2,54 +2,30 @@
 A model worker that executes the model.
 """
 import argparse
-import asyncio
 import base64
-import dataclasses
 import gc
-import logging
 import json
 import os
-import threading
-import time
 from typing import List, Optional
 import uuid
 
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
-import requests
-
-try:
-    from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LlamaTokenizer,
-        AutoModel,
-    )
-except ImportError:
-    from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LLaMATokenizer,
-        AutoModel,
-    )
 import torch
 import torch.nn.functional as F
 from transformers import set_seed
 import uvicorn
 
-from fastchat.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
-from fastchat.conversation import get_conv_template
+from fastchat.constants import ErrorCode, SERVER_ERROR_MSG
 from fastchat.model.model_adapter import (
     load_model,
     add_model_args,
-    get_conversation_template,
     get_generate_stream_function,
 )
-from fastchat.modules.gptq import GptqConfig
 from fastchat.modules.awq import AWQConfig
+from fastchat.modules.exllama import ExllamaConfig
+from fastchat.modules.gptq import GptqConfig
+from fastchat.serve.base_model_worker import BaseModelWorker, app
 from fastchat.utils import (
     build_logger,
-    pretty_print_semaphore,
     get_context_length,
     str_to_torch_dtype,
 )
@@ -58,6 +34,7 @@ from fastchat.utils import (
 worker_id = str(uuid.uuid4())[:8]
 logger = build_logger("model_worker", f"model_worker_{worker_id}.log")
 
+'''
 app = FastAPI()
 
 
@@ -259,6 +236,7 @@ class BaseModelWorker:
 
     def get_conv_template(self):
         return {"conv": self.conv}
+'''
 
 
 class ModelWorker(BaseModelWorker):
@@ -279,6 +257,7 @@ class ModelWorker(BaseModelWorker):
         cpu_offloading: bool = False,
         gptq_config: Optional[GptqConfig] = None,
         awq_config: Optional[AWQConfig] = None,
+        exllama_config: Optional[ExllamaConfig] = None,
         stream_interval: int = 2,
         conv_template: Optional[str] = None,
         embed_in_truncate: bool = False,
@@ -306,6 +285,7 @@ class ModelWorker(BaseModelWorker):
             cpu_offloading=cpu_offloading,
             gptq_config=gptq_config,
             awq_config=awq_config,
+            exllama_config=exllama_config,
         )
         self.device = device
         if self.tokenizer.pad_token == None:
@@ -503,70 +483,6 @@ class ModelWorker(BaseModelWorker):
         return ret
 
 
-def release_worker_semaphore():
-    worker.semaphore.release()
-
-
-def acquire_worker_semaphore():
-    if worker.semaphore is None:
-        worker.semaphore = asyncio.Semaphore(worker.limit_worker_concurrency)
-    return worker.semaphore.acquire()
-
-
-def create_background_tasks():
-    background_tasks = BackgroundTasks()
-    background_tasks.add_task(release_worker_semaphore)
-    return background_tasks
-
-
-@app.post("/worker_generate_stream")
-async def api_generate_stream(request: Request):
-    params = await request.json()
-    await acquire_worker_semaphore()
-    generator = worker.generate_stream_gate(params)
-    background_tasks = create_background_tasks()
-    return StreamingResponse(generator, background=background_tasks)
-
-
-@app.post("/worker_generate")
-async def api_generate(request: Request):
-    params = await request.json()
-    await acquire_worker_semaphore()
-    output = worker.generate_gate(params)
-    release_worker_semaphore()
-    return JSONResponse(output)
-
-
-@app.post("/worker_get_embeddings")
-async def api_get_embeddings(request: Request):
-    params = await request.json()
-    await acquire_worker_semaphore()
-    embedding = worker.get_embeddings(params)
-    release_worker_semaphore()
-    return JSONResponse(content=embedding)
-
-
-@app.post("/worker_get_status")
-async def api_get_status(request: Request):
-    return worker.get_status()
-
-
-@app.post("/count_token")
-async def api_count_token(request: Request):
-    params = await request.json()
-    return worker.count_token(params)
-
-
-@app.post("/worker_get_conv_template")
-async def api_get_conv(request: Request):
-    return worker.get_conv_template()
-
-
-@app.post("/model_details")
-async def api_model_details(request: Request):
-    return {"context_length": worker.context_len}
-
-
 def create_model_worker():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
@@ -649,6 +565,13 @@ def create_model_worker():
         wbits=args.awq_wbits,
         groupsize=args.awq_groupsize,
     )
+    if args.enable_exllama:
+        exllama_config = ExllamaConfig(
+            max_seq_len=args.exllama_max_seq_len,
+            gpu_split=args.exllama_gpu_split,
+        )
+    else:
+        exllama_config = None
 
     worker = ModelWorker(
         args.controller_address,
@@ -678,6 +601,7 @@ def create_model_worker():
         # args.cpu_offloading: False
         gptq_config=gptq_config,
         awq_config=awq_config,
+        exllama_config=exllama_config,
         stream_interval=args.stream_interval,
         # args.stream_interval: 2
         conv_template=args.conv_template,

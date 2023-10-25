@@ -2,7 +2,7 @@
 Chat with a model with command line interface.
 
 Usage:
-python3 -m fastchat.serve.cli --model lmsys/vicuna-7b-v1.3
+python3 -m fastchat.serve.cli --model lmsys/vicuna-7b-v1.5
 python3 -m fastchat.serve.cli --model lmsys/fastchat-t5-3b-v1.0
 
 Other commands:
@@ -29,8 +29,9 @@ from rich.markdown import Markdown
 import torch
 
 from fastchat.model.model_adapter import add_model_args
-from fastchat.modules.gptq import GptqConfig
 from fastchat.modules.awq import AWQConfig
+from fastchat.modules.exllama import ExllamaConfig
+from fastchat.modules.gptq import GptqConfig
 from fastchat.serve.inference import ChatIO, chat_loop
 from fastchat.utils import str_to_torch_dtype
 
@@ -123,7 +124,7 @@ class RichChatIO(ChatIO):
         return prompt_input
 
     def prompt_for_output(self, role: str):
-        self._console.print(f"[bold]{role}:")
+        self._console.print(f"[bold]{role.replace('/', '|')}:")
 
     def stream_output(self, output_stream):
         """Stream output from a role."""
@@ -216,7 +217,13 @@ def main(args):
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
         os.environ["XPU_VISIBLE_DEVICES"] = args.gpus
-
+    if args.enable_exllama:
+        exllama_config = ExllamaConfig(
+            max_seq_len=args.exllama_max_seq_len,
+            gpu_split=args.exllama_gpu_split,
+        )
+    else:
+        exllama_config = None
     if args.style == "simple":
         # args.style: 'simple'
         # args.multiline: False
@@ -269,6 +276,7 @@ def main(args):
                 wbits=args.awq_wbits,
                 groupsize=args.awq_groupsize,
             ),
+            exllama_config=exllama_config,
             revision=args.revision,
             # args.revision: 'main'
             judge_sent_end=args.judge_sent_end,

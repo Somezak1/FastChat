@@ -76,6 +76,13 @@ async def fetch_remote(url, pload=None, name=None):
     async with aiohttp.ClientSession(timeout=fetch_timeout) as session:
         async with session.post(url, json=pload) as response:
             chunks = []
+            if response.status != 200:
+                ret = {
+                    "text": f"{response.reason}",
+                    "error_code": ErrorCode.INTERNAL_ERROR,
+                }
+                return json.dumps(ret)
+
             async for chunk, _ in response.content.iter_chunks():
                 chunks.append(chunk)
         output = b"".join(chunks)
@@ -169,6 +176,11 @@ async def check_length(request, prompt, max_tokens, worker_addr):
     '''
     assert prompt_tokens + max_tokens <= context_len
     '''
+    if (
+        not isinstance(max_tokens, int) or max_tokens <= 0
+    ):  # model worker not support max_tokens=None
+        max_tokens = 1024 * 1024
+
     context_len = await fetch_remote(
         worker_addr + "/model_details", {"model": request.model}, "context_length"
     )
@@ -178,24 +190,8 @@ async def check_length(request, prompt, max_tokens, worker_addr):
         {"model": request.model, "prompt": prompt},
         "count",
     )
-    # token_num: 传入模型的prompt(system_content+Q+A+...+Q)所占用的tokens数量
-    # max_tokens: 模型所能支持的最大输出长度(answer的最大tokens), 该值可以人为定义
-    if token_num + max_tokens > context_len:
-        # prompt+answer所占用的tokens数量需要小于模型所能支持的最大上下文长度, 不然会报错
-        # 模型在正常情况下会输出完整的answer, 那么返回的finish_reason='stop'
-        # 如果max_tokens过小, 则模型还未输出到停止符就会被迫停止, 且返回的finish_reason='length'
-        # 注意: 这里和真正推断的时候还有一点不一样, 真正推断时候prompt会进行如下截断, 优先保证answer的输出空间
-        # prompt = prompt[-(context_len-max_tokens-8):]
-        return create_error_response(
-            ErrorCode.CONTEXT_OVERFLOW,
-            f"This model's maximum context length is {context_len} tokens. "
-            f"However, you requested {max_tokens + token_num} tokens "
-            f"({token_num} in the messages, "
-            f"{max_tokens} in the completion). "
-            f"Please reduce the length of the messages or completion.",
-        )
-    else:
-        return None
+
+    return min(max_tokens, context_len - token_num)
 
 
 def check_requests(request) -> Optional[JSONResponse]:
@@ -289,6 +285,8 @@ async def get_gen_params(
     max_tokens: Optional[int],
     echo: Optional[bool],
     stop: Optional[Union[str, List[str]]],
+    best_of: Optional[int] = None,
+    use_beam_search: Optional[bool] = None,
 ) -> Dict[str, Any]:
     # 获取推断时所需的model, prompt, 温度, max_new_tokens 等信息
     conv = await get_conv(model_name, worker_addr)
@@ -326,8 +324,6 @@ async def get_gen_params(
         prompt = conv.get_prompt()
         # 按conv中定义的方式将system_content+Q+A+...+Q等内容拼接在一起
 
-    if max_tokens is None:
-        max_tokens = 512
     gen_params = {
         "model": model_name,
         "prompt": prompt,
@@ -337,6 +333,11 @@ async def get_gen_params(
         "echo": echo,
         "stop_token_ids": conv.stop_token_ids,
     }
+
+    if best_of is not None:
+        gen_params.update({"best_of": best_of})
+    if use_beam_search is not None:
+        gen_params.update({"use_beam_search": use_beam_search})
 
     new_stop = set()
     _add_to_set(stop, new_stop)
@@ -460,14 +461,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
         echo=False,
         stop=request.stop,
     )
-    error_check_ret = await check_length(
+    gen_params["max_new_tokens"] = await check_length(
         request,
         gen_params["prompt"],
         gen_params["max_new_tokens"],
         worker_addr,
     )
-    if error_check_ret is not None:
-        return error_check_ret
 
     if request.stream:
         generator = chat_completion_stream_generator(
@@ -601,11 +600,9 @@ async def create_completion(request: CompletionRequest):
 
     worker_addr = await get_worker_address(request.model)
     for text in request.prompt:
-        error_check_ret = await check_length(
-            request, text, request.max_tokens, worker_addr
-        )
-        if error_check_ret is not None:
-            return error_check_ret
+        max_tokens = await check_length(request, text, request.max_tokens, worker_addr)
+        if isinstance(max_tokens, int) and max_tokens < request.max_tokens:
+            request.max_tokens = max_tokens
 
     if request.stream:
         generator = generate_completion_stream_generator(
@@ -624,6 +621,8 @@ async def create_completion(request: CompletionRequest):
                 max_tokens=request.max_tokens,
                 echo=request.echo,
                 stop=request.stop,
+                best_of=request.best_of,
+                use_beam_search=request.use_beam_search,
             )
             for i in range(request.n):
                 content = asyncio.create_task(
@@ -870,14 +869,12 @@ async def create_chat_completion(request: APIChatCompletionRequest):
     if request.repetition_penalty is not None:
         gen_params["repetition_penalty"] = request.repetition_penalty
 
-    error_check_ret = await check_length(
+    gen_params["max_new_tokens"] = await check_length(
         request,
         gen_params["prompt"],
         gen_params["max_new_tokens"],
         worker_addr,
     )
-    if error_check_ret is not None:
-        return error_check_ret
 
     if request.stream:
         generator = chat_completion_stream_generator(
