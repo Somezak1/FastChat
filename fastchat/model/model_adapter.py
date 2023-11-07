@@ -34,11 +34,13 @@ from fastchat.model.model_chatglm import generate_stream_chatglm
 from fastchat.model.model_codet5p import generate_stream_codet5p
 from fastchat.model.model_falcon import generate_stream_falcon
 from fastchat.model.model_exllama import generate_stream_exllama
+from fastchat.model.model_xfastertransformer import generate_stream_xft
 from fastchat.model.monkey_patch_non_inplace import (
     replace_llama_attn_with_non_inplace_operations,
 )
 from fastchat.modules.awq import AWQConfig, load_awq_quantized
 from fastchat.modules.exllama import ExllamaConfig, load_exllama_model
+from fastchat.modules.xfastertransformer import load_xft_model, XftConfig
 from fastchat.modules.gptq import GptqConfig, load_gptq_quantized
 from fastchat.utils import get_gpu_memory
 
@@ -178,6 +180,7 @@ def load_model(
     gptq_config: Optional[GptqConfig] = None,
     awq_config: Optional[AWQConfig] = None,
     exllama_config: Optional[ExllamaConfig] = None,
+    xft_config: Optional[XftConfig] = None,
     revision: str = "main",
     # revision: 'main'
     debug: bool = False,
@@ -312,6 +315,9 @@ def load_model(
     elif exllama_config:
         model, tokenizer = load_exllama_model(model_path, exllama_config)
         return model, tokenizer
+    elif xft_config:
+        model, tokenizer = load_xft_model(model_path, xft_config)
+        return model, tokenizer
     kwargs["revision"] = revision
 
     if dtype is not None:  # Overwrite dtype if it is provided in the arguments.
@@ -360,6 +366,7 @@ def get_generate_stream_function(model: torch.nn.Module, model_path: str):
     is_codet5p = "codet5p" in model_type
     is_peft = "peft" in model_type
     is_exllama = "exllama" in model_type
+    is_xft = "xft" in model_type
 
     if is_chatglm:
         return generate_stream_chatglm
@@ -369,6 +376,8 @@ def get_generate_stream_function(model: torch.nn.Module, model_path: str):
         return generate_stream_codet5p
     elif is_exllama:
         return generate_stream_exllama
+    elif is_xft:
+        return generate_stream_xft
 
     elif peft_share_base_weights and is_peft:
         # Return a curried stream function that loads the right adapter
@@ -507,6 +516,24 @@ def add_model_args(parser):
         type=str,
         default=None,
         help="Used for exllamabv2. Comma-separated list of VRAM (in GB) to use per GPU. Example: 20,7,7",
+    )
+    parser.add_argument(
+        "--enable-xft",
+        action="store_true",
+        help="Used for xFasterTransformer Enable xFasterTransformer inference framework.",
+    )
+    parser.add_argument(
+        "--xft-max-seq-len",
+        type=int,
+        default=4096,
+        help="Used for xFasterTransformer. Max sequence length to use for xFasterTransformer framework; default 4096 sequence length.",
+    )
+    parser.add_argument(
+        "--xft-dtype",
+        type=str,
+        choices=["fp16", "bf16", "int8", "bf16_fp16", "bf16_int8"],
+        help="Override the default dtype. If not set, it will use bfloat16 for first token and float16 next tokens on CPU.",
+        default=None,
     )
 
 
@@ -812,6 +839,16 @@ class OasstLLaMAAdapter(BaseModelAdapter):
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("oasst_llama")
+
+
+class OpenChat35Adapter(BaseModelAdapter):
+    """The model adapter for OpenChat 3.5 (e.g. openchat/openchat_3.5)"""
+
+    def match(self, model_path: str):
+        return "openchat" in model_path.lower() and "3.5" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("openchat_3.5")
 
 
 class PythiaAdapter(BaseModelAdapter):
@@ -1378,12 +1415,10 @@ class OpenOrcaAdapter(BaseModelAdapter):
     use_fast_tokenizer = False
 
     def match(self, model_path: str):
-        if "mistral-7b-openorca" in model_path.lower():
-            return get_conv_template("mistral-7b-openorca")
-        elif "openorca" in model_path.lower():
-            return get_conv_template("open-orca")
-        else:
-            return False
+        return (
+            "mistral-7b-openorca" in model_path.lower()
+            or "openorca" in model_path.lower()
+        )
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         revision = from_pretrained_kwargs.get("revision", "main")
@@ -1398,6 +1433,8 @@ class OpenOrcaAdapter(BaseModelAdapter):
         return model, tokenizer
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
+        if "mistral-7b-openorca" in model_path.lower():
+            return get_conv_template("mistral-7b-openorca")
         return get_conv_template("open-orca")
 
 
@@ -1436,6 +1473,20 @@ class QwenChatAdapter(BaseModelAdapter):
     def match(self, model_path: str):
         return "qwen" in model_path.lower()
 
+    def float_set(self, config, option):
+        config.bf16 = False
+        config.fp16 = False
+        config.fp32 = False
+
+        if option == "bf16":
+            config.bf16 = True
+        elif option == "fp16":
+            config.fp16 = True
+        elif option == "fp32":
+            config.fp32 = True
+        else:
+            print("Invalid option. Please choose one from 'bf16', 'fp16' and 'fp32'.")
+
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         from transformers.generation import GenerationConfig
 
@@ -1446,7 +1497,7 @@ class QwenChatAdapter(BaseModelAdapter):
         )
         # NOTE: if you use the old version of model file, please remove the comments below
         # config.use_flash_attn = False
-        config.fp16 = True
+        self.float_set(config, "fp16")
         generation_config = GenerationConfig.from_pretrained(
             model_path, trust_remote_code=True
         )
@@ -1534,7 +1585,13 @@ class E5Adapter(BaseModelAdapter):
 
 
 class AquilaChatAdapter(BaseModelAdapter):
-    """The model adapter for BAAI/AquilaChat-7B"""
+    """The model adapter for BAAI/Aquila
+
+    Now supports:
+    - BAAI/AquilaChat-7B
+    - BAAI/AquilaChat2-7B
+    - BAAI/AquilaChat2-34B
+    """
 
     def match(self, model_path: str):
         return "aquila" in model_path.lower()
@@ -1554,7 +1611,17 @@ class AquilaChatAdapter(BaseModelAdapter):
         return model, tokenizer
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
-        return get_conv_template("aquila-chat")
+        model_path = model_path.lower()
+        # See: https://huggingface.co/BAAI/AquilaChat2-34B/blob/4608b75855334b93329a771aee03869dbf7d88cc/predict.py#L347
+        if "aquilachat2" in model_path:
+            if "16k" in model_path:
+                return get_conv_template("aquila")
+            elif "34b" in model_path:
+                return get_conv_template("aquila-legacy")
+            else:
+                return get_conv_template("aquila-v1")
+        else:
+            return get_conv_template("aquila-chat")
 
 
 class Lamma2ChineseAdapter(BaseModelAdapter):
@@ -1714,6 +1781,20 @@ class LemurAdapter(BaseModelAdapter):
         return get_conv_template("lemur-70b-chat")
 
 
+class PygmalionAdapter(BaseModelAdapter):
+    """The model adapter for Pygmalion/Metharme series of models(e.g., PygmalionAI/mythalion-13b)"""
+
+    # use_fast_tokenizer = False
+
+    def match(self, model_path: str):
+        return bool(
+            re.search(r"pygmalion|mythalion|metharme", model_path.lower(), re.I)
+        )
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("metharme")
+
+
 # Note: the registration order matters.
 # The one registered earlier has a higher matching priority.
 register_model_adapter(PeftModelAdapter)
@@ -1727,6 +1808,7 @@ register_model_adapter(ChatGLMAdapter)
 register_model_adapter(DollyV2Adapter)
 register_model_adapter(OasstPythiaAdapter)
 register_model_adapter(OasstLLaMAAdapter)
+register_model_adapter(OpenChat35Adapter)
 register_model_adapter(StableLMAdapter)
 register_model_adapter(BaizeAdapter)
 register_model_adapter(RwkvAdapter)
@@ -1758,9 +1840,9 @@ register_model_adapter(PythiaAdapter)
 register_model_adapter(InternLMChatAdapter)
 register_model_adapter(StarChatAdapter)
 register_model_adapter(Llama2Adapter)
-register_model_adapter(MistralAdapter)
 register_model_adapter(CuteGPTAdapter)
 register_model_adapter(OpenOrcaAdapter)
+register_model_adapter(MistralAdapter)
 register_model_adapter(WizardCoderAdapter)
 register_model_adapter(QwenChatAdapter)
 register_model_adapter(AquilaChatAdapter)
@@ -1776,6 +1858,8 @@ register_model_adapter(Llama2ChangAdapter)
 register_model_adapter(ZephyrAdapter)
 register_model_adapter(XwinLMAdapter)
 register_model_adapter(LemurAdapter)
+register_model_adapter(PygmalionAdapter)
+
 
 # After all adapters, try the default base adapter.
 register_model_adapter(BaseModelAdapter)

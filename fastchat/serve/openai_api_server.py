@@ -49,6 +49,7 @@ from fastchat.protocol.openai_api_protocol import (
     EmbeddingsRequest,
     EmbeddingsResponse,
     ErrorResponse,
+    LogProbs,
     ModelCard,
     ModelList,
     ModelPermission,
@@ -239,6 +240,11 @@ def check_requests(request) -> Optional[JSONResponse]:
             ErrorCode.PARAM_OUT_OF_RANGE,
             f"{request.top_p} is greater than the maximum of 1 - 'temperature'",
         )
+    if request.top_k is not None and (request.top_k > -1 and request.top_k < 1):
+        return create_error_response(
+            ErrorCode.PARAM_OUT_OF_RANGE,
+            f"{request.top_k} is out of Range. Either set top_k to -1 or >=1.",
+        )
     if request.stop is not None and (
         not isinstance(request.stop, str) and not isinstance(request.stop, list)
     ):
@@ -266,6 +272,11 @@ def process_input(model_name, inp):
     return inp
 
 
+def create_openai_logprobs(logprob_dict):
+    """Create OpenAI-style logprobs."""
+    return LogProbs(**logprob_dict) if logprob_dict is not None else None
+
+
 def _add_to_set(s, new_stop):
     if not s:
         return
@@ -282,8 +293,12 @@ async def get_gen_params(
     *,
     temperature: float,
     top_p: float,
+    top_k: Optional[int],
+    presence_penalty: Optional[float],
+    frequency_penalty: Optional[float],
     max_tokens: Optional[int],
     echo: Optional[bool],
+    logprobs: Optional[int] = None,
     stop: Optional[Union[str, List[str]]],
     best_of: Optional[int] = None,
     use_beam_search: Optional[bool] = None,
@@ -328,7 +343,11 @@ async def get_gen_params(
         "model": model_name,
         "prompt": prompt,
         "temperature": temperature,
+        "logprobs": logprobs,
         "top_p": top_p,
+        "top_k": top_k,
+        "presence_penalty": presence_penalty,
+        "frequency_penalty": frequency_penalty,
         "max_new_tokens": max_tokens,
         "echo": echo,
         "stop_token_ids": conv.stop_token_ids,
@@ -457,6 +476,9 @@ async def create_chat_completion(request: ChatCompletionRequest):
         request.messages,
         temperature=request.temperature,
         top_p=request.top_p,
+        top_k=request.top_k,
+        presence_penalty=request.presence_penalty,
+        frequency_penalty=request.frequency_penalty,
         max_tokens=request.max_tokens,
         echo=False,
         stop=request.stop,
@@ -618,7 +640,11 @@ async def create_completion(request: CompletionRequest):
                 text,
                 temperature=request.temperature,
                 top_p=request.top_p,
+                top_k=request.top_k,
+                frequency_penalty=request.frequency_penalty,
+                presence_penalty=request.presence_penalty,
                 max_tokens=request.max_tokens,
+                logprobs=request.logprobs,
                 echo=request.echo,
                 stop=request.stop,
                 best_of=request.best_of,
@@ -644,7 +670,7 @@ async def create_completion(request: CompletionRequest):
                 CompletionResponseChoice(
                     index=i,
                     text=content["text"],
-                    logprobs=content.get("logprobs", None),
+                    logprobs=create_openai_logprobs(content.get("logprobs", None)),
                     finish_reason=content.get("finish_reason", "stop"),
                 )
             )
@@ -672,7 +698,11 @@ async def generate_completion_stream_generator(
                 text,
                 temperature=request.temperature,
                 top_p=request.top_p,
+                top_k=request.top_k,
+                presence_penalty=request.presence_penalty,
+                frequency_penalty=request.frequency_penalty,
                 max_tokens=request.max_tokens,
+                logprobs=request.logprobs,
                 echo=request.echo,
                 stop=request.stop,
             )
@@ -692,7 +722,7 @@ async def generate_completion_stream_generator(
                 choice_data = CompletionResponseStreamChoice(
                     index=i,
                     text=delta_text,
-                    logprobs=content.get("logprobs", None),
+                    logprobs=create_openai_logprobs(content.get("logprobs", None)),
                     finish_reason=content.get("finish_reason", None),
                 )
                 chunk = CompletionStreamResponse(
@@ -861,6 +891,9 @@ async def create_chat_completion(request: APIChatCompletionRequest):
         request.messages,
         temperature=request.temperature,
         top_p=request.top_p,
+        top_k=request.top_k,
+        presence_penalty=request.presence_penalty,
+        frequency_penalty=request.frequency_penalty,
         max_tokens=request.max_tokens,
         echo=False,
         stop=request.stop,
