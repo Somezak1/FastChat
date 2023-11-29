@@ -60,7 +60,7 @@ class Conversation:
 
     def __post_init__(self):
         if self.debug:
-            print(f"\nUser: {repr(self.roles[0])}")
+            print(f"User: {repr(self.roles[0])}")
             print(f"Assistant: {repr(self.roles[1])}")
             self.roles = ['{User}', '{Assistant}']
 
@@ -96,6 +96,9 @@ class Conversation:
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
         if self.debug:
+            system_prompt = self.system_template.format(system_message='{System_Message}')
+            print(f"System_Message: {repr(self.system_message)}")
+            print(f"Prompt: {repr(system_prompt)}")
             system_prompt = '{Prompt}'
         else:
             system_prompt = self.system_template.format(system_message=self.system_message)
@@ -1200,13 +1203,20 @@ register_conv_template(
 
 
 if __name__ == "__main__":
-    template_name = 'one_shot'
+    template_name = 'baichuan-chat'
 
     pre_conv = get_conv_template(template_name)
     pre_conv.get_prompt()
 
     for idx, seq in enumerate(
-            [["{Q1}", None], ["{Q1}", "{A1}", "{Q2}", None], ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", None]]):
+            [
+                ["{Q1}", None],
+                ["{Q1}", "{A1}", "{Q2}", None],
+                ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", None],
+                ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", "{A3}"]
+            ]
+    ):
+        print(f"\n============================================={idx+1}===============================================")
         pre_conv = get_conv_template(template_name)
         temp = Conversation(
             name=pre_conv.name,
@@ -1225,8 +1235,8 @@ if __name__ == "__main__":
         for i, content in enumerate(seq):
             temp.append_message(temp.roles[i % 2], content)
 
-        prompt = temp.get_prompt()
-        print(f"第 {idx + 1} 次提问: ", repr(prompt + ""))
+        strings_to_model = temp.get_prompt()
+        print(f"{idx + 1} : ", repr(strings_to_model))
 
     from fastchat.conversation import get_conv_template
 
