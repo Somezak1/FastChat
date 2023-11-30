@@ -37,7 +37,6 @@ from fastchat.protocol.openai_api_protocol import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionResponseStreamChoice,
-    # ChatCompletionStreamResponse,
     ChatMessage,
     ChatCompletionResponseChoice,
     CompletionRequest,
@@ -70,10 +69,17 @@ logger = logging.getLogger(__name__)
 
 conv_template_map = {}
 
+# ClientTimeout 用于设置整个会话 (session) 的超时时间, 默认情况下是300s超时
 fetch_timeout = aiohttp.ClientTimeout(total=3 * 3600)
 
 
 async def fetch_remote(url, pload=None, name=None):
+    # 向url发送post请求, pload为传入的json数据
+    # 如果调用请求后返回的结果中存在名为name的键, 则将该键对应的值返回
+    # 如果调用请求后返回的结果中不存在名为name的键, 则将调用结果返回
+
+    # 开启一个会话, 并在规定时间内 (10800s) 内完成 建立连接、发送请求、读取响应
+    # 如果规定时间内没有完成则会报 asyncio.TimeoutError 错误
     async with aiohttp.ClientSession(timeout=fetch_timeout) as session:
         async with session.post(url, json=pload) as response:
             chunks = []
@@ -81,9 +87,9 @@ async def fetch_remote(url, pload=None, name=None):
                 ret = {
                     "text": f"{response.reason}",
                     "error_code": ErrorCode.INTERNAL_ERROR,
+                    # ErrorCode.INTERNAL_ERROR: 50001
                 }
                 return json.dumps(ret)
-
             async for chunk, _ in response.content.iter_chunks():
                 chunks.append(chunk)
         output = b"".join(chunks)
@@ -158,7 +164,7 @@ async def validation_exception_handler(request, exc):
 
 async def check_model(request) -> Optional[JSONResponse]:
     '''
-    判断controller所登记的model中是否有request.model
+    判断controller所登记的众多models中是否有request.model
     如有则返回None, 如没有则返回一个JSON格式错误响应
     '''
     controller_address = app_settings.controller_address
@@ -174,9 +180,6 @@ async def check_model(request) -> Optional[JSONResponse]:
 
 
 async def check_length(request, prompt, max_tokens, worker_addr):
-    '''
-    assert prompt_tokens + max_tokens <= context_len
-    '''
     if (
         not isinstance(max_tokens, int) or max_tokens <= 0
     ):  # model worker not support max_tokens=None
@@ -185,7 +188,7 @@ async def check_length(request, prompt, max_tokens, worker_addr):
     context_len = await fetch_remote(
         worker_addr + "/model_details", {"model": request.model}, "context_length"
     )
-    # context_len: model worker中加载的模型所能支持的最大上下文长度, 该值由模型权重路径下的config.json文件定义, 默认值是2048
+    # context_len: worker中加载的模型所能支持的最大上下文长度, 该值由模型权重路径下的config.json文件定义
     token_num = await fetch_remote(
         worker_addr + "/count_token",
         {"model": request.model, "prompt": prompt},
@@ -288,22 +291,37 @@ def _add_to_set(s, new_stop):
 
 async def get_gen_params(
     model_name: str,
+    # model_name: API接口调用时传入的"model"值
     worker_addr: str,
     messages: Union[str, List[Dict[str, str]]],
+    # messages: API接口调用时传入的"messages"值
     *,
     temperature: float,
+    # temperature: API接口调用时传入的"temperature"值, 如不指定则采用默认值0.7
     top_p: float,
+    # top_p: API接口调用时传入的"top_p"值, 如不指定则采用默认值1.0
     top_k: Optional[int],
+    # top_k: API接口调用时传入的"top_k"值, 如不指定则采用默认值-1
     presence_penalty: Optional[float],
+    # presence_penalty: API接口调用时传入的"presence_penalty"值, 如不指定则采用默认值0.0
     frequency_penalty: Optional[float],
+    # frequency_penalty: API接口调用时传入的"frequency_penalty"值, 如不指定则采用默认值0.0
     max_tokens: Optional[int],
+    # max_tokens: API接口调用时传入的"max_tokens"值, 如不指定则采用默认值None
     echo: Optional[bool],
+    # echo: False
     logprobs: Optional[int] = None,
+    # logprobs: None
     stop: Optional[Union[str, List[str]]],
+    # stop: API接口调用时传入的"stop"值, 如不指定则采用默认值None
     best_of: Optional[int] = None,
+    # best_of: None
     use_beam_search: Optional[bool] = None,
+    # use_beam_search: None
 ) -> Dict[str, Any]:
     # 获取推断时所需的model, prompt, 温度, max_new_tokens 等信息
+
+    # 向worker发送"/worker_get_conv_template"请求, 获取worker_addr下指定request.model的对话模板
     conv = await get_conv(model_name, worker_addr)
     conv = Conversation(
         name=conv["name"],
@@ -342,19 +360,30 @@ async def get_gen_params(
     gen_params = {
         "model": model_name,
         "prompt": prompt,
+        # 按对话模板中指定的方式, 将API接口调用时传入的"messages"拼接起来
         "temperature": temperature,
+        # temperature: API接口调用时传入的"temperature"值, 如不指定则采用默认值0.7
         "logprobs": logprobs,
+        # logprobs: None
         "top_p": top_p,
+        # top_p: API接口调用时传入的"top_p"值, 如不指定则采用默认值1.0
         "top_k": top_k,
+        # top_k: API接口调用时传入的"top_k"值, 如不指定则采用默认值-1
         "presence_penalty": presence_penalty,
+        # presence_penalty: API接口调用时传入的"presence_penalty"值, 如不指定则采用默认值0.0
         "frequency_penalty": frequency_penalty,
+        # frequency_penalty: API接口调用时传入的"frequency_penalty"值, 如不指定则采用默认值0.0
         "max_new_tokens": max_tokens,
+        # max_tokens: API接口调用时传入的"max_tokens"值, 如不指定则采用默认值None
         "echo": echo,
+        # echo: None
         "stop_token_ids": conv.stop_token_ids,
     }
 
+    # best_of: None
     if best_of is not None:
         gen_params.update({"best_of": best_of})
+    # use_beam_search: None
     if use_beam_search is not None:
         gen_params.update({"use_beam_search": use_beam_search})
 
@@ -395,8 +424,9 @@ async def get_worker_address(model_name: str) -> str:
 async def get_conv(model_name: str, worker_addr: str):
     # 向worker_address通信, 得到该worker初始化时的对话模板conv_template
     conv_template = conv_template_map.get((worker_addr, model_name))
-    # 先去字典中查询这个worker_address下该model的对话模板
+    # 先去字典conv_template_map中查询这个worker_address下该model_name的对话模板
     # 如果字典中没有该信息, 就向worker_address发送worker_get_conv_template的请求, 将获取到的conv_template存储在字典中
+    # 下次再调用worker_address下该model_name时候, 就不用反复与worker通讯来获取其对话模板了
     if conv_template is None:
         conv_template = await fetch_remote(
             worker_addr + "/worker_get_conv_template", {"model": model_name}, "conv"
@@ -421,12 +451,15 @@ async def show_available_models():
 
 @app.post("/v1/chat/completions", dependencies=[Depends(check_api_key)])
 async def create_chat_completion(request: ChatCompletionRequest):
+    """Creates a completion for the chat message"""
 
+    # API调用时未指定的参数使用如下默认值:
     # class ChatCompletionRequest(BaseModel):
     #     model: str
     #     messages: Union[str, List[Dict[str, str]]]
     #     temperature: Optional[float] = 0.7
     #     top_p: Optional[float] = 1.0
+    #     top_k: Optional[int] = -1
     #     n: Optional[int] = 1
     #     max_tokens: Optional[int] = None
     #     stop: Optional[Union[str, List[str]]] = None
@@ -435,41 +468,21 @@ async def create_chat_completion(request: ChatCompletionRequest):
     #     frequency_penalty: Optional[float] = 0.0
     #     user: Optional[str] = None
 
-    # request: (调用请求时除model和messages以外, 其他参数未指定, 查看默认参数值)
-    # model='vicuna-7b-v1.3' messages=[{'role': 'user', 'content': '你了解冰鉴吗'}] temperature=0.7
-    # top_p=1.0 n=1 max_tokens=None stop=None stream=False presence_penalty=0.0 frequency_penalty=0.0 user=None
-
-    # create_chat_completion函数中各函数通信次数统计:
-    #    函数-->子函数                                                       调用controller            调用worker
-    # ① check_model                                                        None                     None
-    # create_chat_completion函数此时自己调用一次                               .get_worker_address       None
-    # ② get_gen_params-->get_conv                                          None                     .worker_get_conv_template
-    # ③ check_length                                                       None                     .model_details, .count_token
-    # if request.stream == True
-    # ④ chat_completion_stream_generator-->generate_completion_stream      None                     .worker_generate_stream
-    # else
-    # ④ generate_completion                                                None                     .worker_generate
-
-    # 每有一个create_chat_completion请求, openai_api_server就会向controller进行4次get_worker_address通信
-    # controller会依据同名model之前通信保存的负载, 返回一个dispatch_method方法指定的worker_address
-    # 但依据上面的表格所示, ①②③④四个函数所调用的get_worker_address, 其后跟随的调用worker的通信负载是不一样的
-    # worker_generate_stream和worker_generate的通信负载要远大于worker_get_conv_template, model_details, count_token
-    # 所以controller中依据get_worker_address的负载来返回worker_address的策略经常会出现
-    # 一张卡经常干model_details, count_token之类的杂活
-    # 另一张卡却经常, 多次被分配到worker_generate_stream这样的重活, 导致卡的利用率不高
-
-    """Creates a completion for the chat message"""
+    # 向controller发送"/list_models"请求, 判断controller所登记的众多models中是否有request.model
     error_check_ret = await check_model(request)
     if error_check_ret is not None:
         return error_check_ret
+
+    # 检查一下request中的参数是否符合规范
     error_check_ret = check_requests(request)
     if error_check_ret is not None:
         return error_check_ret
 
+    # 向controller发送"/get_worker_address"请求, 从controller中所有名称为request.model的worker_addr中挑一个返回
     worker_addr = await get_worker_address(request.model)
 
-    # 获取对话模板, 同时根据对话模板及传入的messages将文本拼接成输入模型的prompt
-    # 汇总其他模型生成参数, 获得gen_params
+    # 向worker_addr发送"/worker_get_conv_template"请求, 获取worker_addr下指定request.model的对话模板
+    # 同时根据对话模板及传入的messages将文本拼接成输入模型的prompt, 汇总模型其他的生成参数得到gen_params
     gen_params = await get_gen_params(
         request.model,
         worker_addr,
@@ -483,6 +496,10 @@ async def create_chat_completion(request: ChatCompletionRequest):
         echo=False,
         stop=request.stop,
     )
+
+    # 向worker_addr发送"/model_details"请求, 获取request.model的最大上下文长度context_len
+    # 向worker_addr发送"/count_token"请求, 获取gen_params["prompt"]的token_num
+    # 最后返回 min(gen_params["max_new_tokens"], context_len - token_num), 因此有可能是个负数
     gen_params["max_new_tokens"] = await check_length(
         request,
         gen_params["prompt"],
@@ -490,12 +507,14 @@ async def create_chat_completion(request: ChatCompletionRequest):
         worker_addr,
     )
 
+    # 流式调用
     if request.stream:
         generator = chat_completion_stream_generator(
             request.model, gen_params, request.n, worker_addr
         )
         return StreamingResponse(generator, media_type="text/event-stream")
 
+    # 非流式调用
     choices = []
     chat_completions = []
     for i in range(request.n):
@@ -521,6 +540,16 @@ async def create_chat_completion(request: ChatCompletionRequest):
             for usage_key, usage_value in task_usage.dict().items():
                 setattr(usage, usage_key, getattr(usage, usage_key) + usage_value)
 
+    # 调用:
+    # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    #     "model":"Llama-2-13b-chat-hf",
+    #     "max_tokens":500,
+    #     "messages":[{"content":"What is the boiling point of water","role":"user"}],
+    #     "stream":false,
+    #     "temperature":0
+    #   }'
+    # 打印信息例举:
+    # {"id":"chatcmpl-3mZ5bo8Damkzk5HDMywRqU","object":"chat.completion","created":1701348029,"model":"Llama-2-13b-chat-hf","choices":[{"index":0,"message":{"role":"assistant","content":" The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure."},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"total_tokens":56,"completion_tokens":40}}
     return ChatCompletionResponse(model=request.model, choices=choices, usage=usage)
 
 
@@ -535,6 +564,11 @@ async def chat_completion_stream_generator(
     finish_stream_events = []
     s_time = time.time()
     usage = UsageInfo()
+    # class UsageInfo(BaseModel):
+    #     prompt_tokens: int = 0
+    #     total_tokens: int = 0
+    #     completion_tokens: Optional[int] = 0
+
     for i in range(n):
         # First chunk with role
         choice_data = ChatCompletionResponseStreamChoice(
@@ -545,7 +579,11 @@ async def chat_completion_stream_generator(
         # class ChatCompletionResponseStreamChoice(BaseModel):
         #     index: int
         #     delta: DeltaMessage
-        #     finish_reason: Optional[Literal["stop", "length"]]
+        #     finish_reason: Optional[Literal["stop", "length"]] = None
+
+        # class DeltaMessage(BaseModel):
+        #     role: Optional[str] = None
+        #     content: Optional[str] = None
 
         chunk = ChatCompletionStreamResponse(
             id=id, choices=[choice_data], model=model_name, usage=usage
@@ -556,9 +594,21 @@ async def chat_completion_stream_generator(
         #     created: int = Field(default_factory=lambda: int(time.time()))
         #     model: str
         #     choices: List[ChatCompletionResponseStreamChoice]
+        #     usage: UsageInfo
 
         yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+        # 调用:
+        # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+        #     "model":"Llama-2-13b-chat-hf",
+        #     "max_tokens":500,
+        #     "messages":[{"content":"What is the boiling point of water","role":"user"}],
+        #     "stream":true,
+        #     "temperature":0
+        #   }'
+        # 打印信息例举:
+        # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}], "usage": {}}
 
+        # previous_text储存前面已打印/已返回的字符
         previous_text = ""
         async for content in generate_completion_stream(gen_params, worker_addr):
             if content["error_code"] != 0:
@@ -566,6 +616,7 @@ async def chat_completion_stream_generator(
                 yield "data: [DONE]\n\n"
                 return
             decoded_unicode = content["text"].replace("\ufffd", "")
+            # 剔除返回字符中之前已打印的字符
             delta_text = decoded_unicode[len(previous_text) :]
             previous_text = (
                 decoded_unicode
@@ -583,7 +634,7 @@ async def chat_completion_stream_generator(
             # class ChatCompletionResponseStreamChoice(BaseModel):
             #     index: int
             #     delta: DeltaMessage
-            #     finish_reason: Optional[Literal["stop", "length"]]
+            #     finish_reason: Optional[Literal["stop", "length"]] = None
 
             task_usage = UsageInfo.parse_obj(content["usage"])
             chunk = ChatCompletionStreamResponse(
@@ -595,18 +646,64 @@ async def chat_completion_stream_generator(
             #     created: int = Field(default_factory=lambda: int(time.time()))
             #     model: str
             #     choices: List[ChatCompletionResponseStreamChoice]
+            #     usage: UsageInfo
 
             if delta_text is None:
                 if content.get("finish_reason", None) is not None:
                     finish_stream_events.append(chunk)
                 continue
             yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+            # 打印信息例举:
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " The bo"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 18, "completion_tokens": 2}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "iling point"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 20, "completion_tokens": 4}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " of water"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 22, "completion_tokens": 6}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " is "}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 24, "completion_tokens": 8}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "10"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 26, "completion_tokens": 10}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "0 degrees"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 28, "completion_tokens": 12}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " Celsi"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 30, "completion_tokens": 14}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "us ("}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 32, "completion_tokens": 16}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "°C"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 34, "completion_tokens": 18}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": ") or"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 36, "completion_tokens": 20}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " 2"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 38, "completion_tokens": 22}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "12"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 40, "completion_tokens": 24}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " degrees F"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 42, "completion_tokens": 26}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "ahrenheit"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 44, "completion_tokens": 28}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " (°"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 46, "completion_tokens": 30}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "F)"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 48, "completion_tokens": 32}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " at standard"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 50, "completion_tokens": 34}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " atmospher"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 52, "completion_tokens": 36}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "ic pressure"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 54, "completion_tokens": 38}}
+            #
+            # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": "."}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 56, "completion_tokens": 40}}
+
     # There is not "content" field in the last delta message, so exclude_none to exclude field "content".
     for finish_chunk in finish_stream_events:
         yield f"data: {finish_chunk.json(exclude_none=True, ensure_ascii=False)}\n\n"
+        # 打印信息例举:
+        # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "object": "chat.completion.chunk", "created": 1701347972, "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 16, "total_tokens": 56, "completion_tokens": 40}}
     e_time = time.time()
     speed = finish_chunk.usage.completion_tokens / (e_time - s_time)
     yield f"data: [DONE]  cost: {e_time - s_time:.1f} s  speed: {speed:.1f} tokens/s\n\n"
+    # 打印信息例举:
+    # data: [DONE]  cost: 1.5 s  speed: 26.5 tokens/s
 
 
 @app.post("/v1/completions", dependencies=[Depends(check_api_key)])
@@ -744,21 +841,32 @@ async def generate_completion_stream_generator(
 
 async def generate_completion_stream(payload: Dict[str, Any], worker_addr: str):
     controller_address = app_settings.controller_address
+    # 在 Python 中, 访问网络资源最有名的库就是 requests、aiohttp 和 httpx
+    # 一般情况下, requests 只能发送同步请求, aiohttp 只能发送异步请求, httpx 既能发送同步请求, 又能发送异步请求
+    # 使用 async with httpx.AsyncClient() as client, 打开和关闭 Client
     async with httpx.AsyncClient() as client:
         delimiter = b"\0"
         async with client.stream(
             "POST",
             worker_addr + "/worker_generate_stream",
             headers=headers,
+            # headers: {"User-Agent": "FastChat API Server"}
             json=payload,
             timeout=WORKER_API_TIMEOUT,
             # WORKER_API_TIMEOUT: 100
         ) as response:
             # content = await response.aread()
             buffer = b""
+            # response.aiter_raw(): 用于流式传输原始响应字节, 无需应用内容解码
             async for raw_chunk in response.aiter_raw():
+                # worker那边每次返回的内容是json.dumps(ret).encode() + b"\0", 结尾都是b"\0"
+                # 将空字符串与worker单次的返回内容拼接
                 buffer += raw_chunk
+                # 将历次返回的二进制信息拼接
                 while (chunk_end := buffer.find(delimiter)) >= 0:
+                    # 使用b"\0"作为分隔符进行二进制字符串的分割
+                    # 这就像s="something-"; chunk, buffer = s.split('-')[0], s.split('-')[-1]
+                    # chunk 为 "something"; buffer 为 ""
                     chunk, buffer = buffer[:chunk_end], buffer[chunk_end + 1 :]
                     if not chunk:
                         continue
@@ -991,11 +1099,19 @@ def create_openai_api_server():
     app_settings.api_keys = args.api_keys
 
     logger.info(f"args: {args}")
+    # args:
+    # Namespace(host='localhost', port=8001, controller_address='http://localhost:21001', allow_credentials=False,
+    # allowed_origins=['*'], allowed_methods=['*'], allowed_headers=['*'], api_keys=None, ssl=False)
     return args
 
 
 if __name__ == "__main__":
+    # 此代码的注释都是基于如下指令debug获得的
+    # ================================================================================================================
+    # python3 -m fastchat.serve.openai_api_server --host localhost --port 8001
+    # ================================================================================================================
     args = create_openai_api_server()
+    # args.ssl: False
     if args.ssl:
         uvicorn.run(
             app,

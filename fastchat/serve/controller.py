@@ -28,6 +28,7 @@ from fastchat.constants import (
 from fastchat.utils import build_logger
 
 
+# 记录controller的日志
 logger = build_logger("controller", "controller.log")
 
 
@@ -56,8 +57,8 @@ class WorkerInfo:
 
 def heart_beat_controller(controller):
     '''
-    每隔90秒, 遍历一次controller.worker_info(controller中所有登记过的worker), 若该worker在过去90秒内与controller没通信过
-    则从controller.worker_info中删除该worker
+    每隔90秒, 遍历一次controller.worker_info (controller中所有登记过的worker)
+    若该worker在过去90秒内与controller没通信过, 则从controller.worker_info中删除该worker
     '''
     while True:
         time.sleep(CONTROLLER_HEART_BEAT_EXPIRATION)
@@ -69,8 +70,9 @@ class Controller:
     def __init__(self, dispatch_method: str):
         # Dict[str -> WorkerInfo]
         self.worker_info = {}
-        # note: self.worker_info中worker的queue_length信息只有在heart_beat和get_worker_address时才会得到更新
-        # 其中heart_beat 45秒发送一次, 所以get_worker_address时所依据的queue_length信息可能是过时的
+        # note: self.worker_info中worker的queue_length信息
+        # 只有在worker向controller heart_beat 和 api_server向controller get_worker_address 这两种情况下才会得到更新
+        # 其中heart_beat 每45秒发送一次, 所以get_worker_address时所依据的queue_length信息可能是过时的
         self.dispatch_method = DispatchMethod.from_str(dispatch_method)
         # self.dispatch_method: DispatchMethod.SHORTEST_QUEUE
         # 该值用于get_worker_address
@@ -84,10 +86,12 @@ class Controller:
     def register_worker(
         self, worker_name: str, check_heart_beat: bool, worker_status: dict
     ):
+        # 该函数用于将worker发送来的身份信息保存在controller的worker_info中
+
         # worker_name: 'http://{worker_ip}:21002'
         # check_heart_beat: True
         # worker_status: {
-        #    "model_names": 'vicuna-7b-v1.3',
+        #    "model_names": 'Llama-2-13b-chat-hf',
         #    "speed": 1,
         #    "queue_length": 0,
         # }
@@ -96,6 +100,7 @@ class Controller:
         else:
             logger.info(f"Register an existing worker: {worker_name}")
 
+        # 如果worker向controller报备时没自带worker_status, 则controller会依据worker_name向worker发送一个获取其状态的请求
         if not worker_status:
             worker_status = self.get_worker_status(worker_name)
         if not worker_status:
@@ -140,14 +145,21 @@ class Controller:
                 logger.info(f"Remove stale worker: {w_name}")
 
     def list_models(self):
+        # 返回self.worker_info中不重复的所有model_names
         model_names = set()
 
         for w_name, w_info in self.worker_info.items():
+            # w_name: 'http://{worker_ip}:21002'
+            # w_info: WorkerInfo(...) obj
             model_names.update(w_info.model_names)
 
         return list(model_names)
 
     def get_worker_address(self, model_name: str):
+        # api_server接收到用户对于某个model_name的生成请求, 但api_server不知道这个model_name对应worker的联系方式
+        # 于是api_server拜托controller, 让controller告诉api_server一个名为model_name的worker的联系方式
+        # controller于是从小本本(worker_info)中查找所有名为model_name的worker, 并随机返回一个该worker的联系方式给api_server
+        # 该函数的作用就是从所有名为model_name的worker中按DispatchMethod指定的方式返回一个该worker的地址
         if self.dispatch_method == DispatchMethod.LOTTERY:
             worker_names = []
             worker_speeds = []
@@ -184,6 +196,7 @@ class Controller:
         elif self.dispatch_method == DispatchMethod.SHORTEST_QUEUE:
             worker_names = []
             worker_qlen = []
+            # 将self.worker_info中所有名称含model_name的worker挑出来
             for w_name, w_info in self.worker_info.items():
                 # w_name: 'http://{worker_ip}:21002'
                 # w_info: WorkerInfo(...) obj
@@ -192,9 +205,11 @@ class Controller:
                     worker_qlen.append(w_info.queue_length / w_info.speed)
             if len(worker_names) == 0:
                 return ""
-            indexes = np.where(worker_qlen == np.min(worker_qlen))[0]
-            min_index = np.random.choice(indexes, 1)[0]
+            # 从挑选出来的worker中根据(上次worker向controller报备时该worker的)queue_length最短原则, 随机挑选一个worker
+            # 注意: controller中登记的worker, 其queue_length只会在register/receive_heart_beat/get_worker_address三种情况下得到更新
+            min_index = np.argmin(worker_qlen)
             w_name = worker_names[min_index]
+            # 被选中的worker queue_length加1
             self.worker_info[w_name].queue_length += 1
             logger.info(
                 f"names: {worker_names}, queue_lens: {worker_qlen}, ret: {w_name}"
@@ -204,6 +219,7 @@ class Controller:
             raise ValueError(f"Invalid dispatch method: {self.dispatch_method}")
 
     def receive_heart_beat(self, worker_name: str, queue_length: int):
+        # 用worker发来的最新信息, 更新controller的小本本中该worker的部分
         if worker_name not in self.worker_info:
             logger.info(f"Receive unknown heart beat. {worker_name}")
             return False
@@ -267,16 +283,6 @@ class Controller:
         }
 
     def worker_api_generate_stream(self, params):
-        # params:
-        # {
-        #     'model': 'vicuna-7b-v1.3',
-        #     'prompt': "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Who are you ASSISTANT:",
-        #     'temperature': 0.0,
-        #     'max_new_tokens': 512,
-        #     'stop': None,
-        #     'stop_token_ids': None,
-        #     'echo': False
-        # }
         worker_addr = self.get_worker_address(params["model"])
         # worker_addr: 'http://{worker_ip}:21002'
         if not worker_addr:
@@ -309,7 +315,7 @@ async def register_worker(request: Request):
     # data["worker_name"]: 'http://{worker_ip}:21002'
     # data["check_heart_beat"]: True
     # data.get("worker_status", None): {
-    #    "model_names": 'vicuna-7b-v1.3',
+    #    "model_names": 'Llama-2-13b-chat-hf',
     #    "speed": 1,
     #    "queue_length": 0,
     # }
@@ -361,9 +367,11 @@ async def worker_api_get_status(request: Request):
 
 def create_controller():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", type=str, default="localhost")
     # 如果controller和worker不在同一台机器上开启, 那么host参数要填controller的ip地址
+    parser.add_argument("--host", type=str, default="localhost")
+    # 端口号
     parser.add_argument("--port", type=int, default=21001)
+    # api_server向controller索要worker地址时, controller采用如下参数指定的逻辑返回worker地址给api_server
     parser.add_argument(
         "--dispatch-method",
         type=str,
@@ -386,6 +394,10 @@ def create_controller():
 
 
 if __name__ == "__main__":
+    # 此代码的注释都是基于如下指令debug获得的
+    # ================================================================================================================
+    # python3 -m fastchat.serve.controller
+    # ================================================================================================================
     args, controller = create_controller()
     if args.ssl:
         uvicorn.run(

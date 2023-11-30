@@ -21,6 +21,7 @@ app = FastAPI()
 def heart_beat_worker(obj):
     while True:
         time.sleep(WORKER_HEART_BEAT_INTERVAL)
+        # WORKER_HEART_BEAT_INTERVAL: 45
         obj.send_heart_beat()
 
 
@@ -28,12 +29,19 @@ class BaseModelWorker:
     def __init__(
         self,
         controller_addr: str,
+        # controller_addr: "http://{controller_ip}:21001"
         worker_addr: str,
+        # worker_addr: "http://{worker_ip}:21002"
         worker_id: str,
+        # worker_id: 一个每次运行都不固定的字符串, 这里以'e73850d4'举例
         model_path: str,
+        # model_path: '/data1/csw_model_weights/Llama-2-13b-chat-hf'
         model_names: List[str],
+        # model_names: None
         limit_worker_concurrency: int,
+        # limit_worker_concurrency: 5
         conv_template: str = None,
+        # conv_template: 'llama-2'
     ):
         global logger, worker
 
@@ -44,6 +52,7 @@ class BaseModelWorker:
             model_path = model_path[:-1]
         self.model_names = model_names or [model_path.split("/")[-1]]
         self.limit_worker_concurrency = limit_worker_concurrency
+        # 获取该模型的对话模板, 如果--conv-template参数未指定, 则会根据传入的--model-path匹配一个对话模板
         self.conv = self.make_conv_template(conv_template, model_path)
         self.conv.sep_style = int(self.conv.sep_style)
         self.tokenizer = None
@@ -71,11 +80,18 @@ class BaseModelWorker:
 
         if conv_template:
             conv = get_conv_template(conv_template)
+            # 根据conv_template, 获取指定模板
         else:
             conv = get_conversation_template(model_path)
+            # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
         return conv
 
     def init_heart_beat(self):
+        '''
+        向controller报备完毕之后, 程序会再单独开一个线程
+        该线程每隔45秒会向controller报备一下, 确保worker与controller之间的连接畅通
+        如果当次报备失败, 则间隔5秒重新报备, 直至成功
+        '''
         self.register_to_controller()
         self.heart_beat_thread = threading.Thread(
             target=heart_beat_worker,
@@ -85,6 +101,10 @@ class BaseModelWorker:
         self.heart_beat_thread.start()
 
     def register_to_controller(self):
+        '''
+        向controller发送一个包含自身信息的data, 报备一下, 确保通信畅通
+        如果报备失败, 则程序会报错
+        '''
         logger.info("Register to controller")
 
         url = self.controller_addr + "/register_worker"
@@ -97,6 +117,7 @@ class BaseModelWorker:
         assert r.status_code == 200
 
     def send_heart_beat(self):
+        # 向controller发送信息, 报备一下
         logger.info(
             f"Send heart beat. Models: {self.model_names}. "
             f"Semaphore: {pretty_print_semaphore(self.semaphore)}. "
@@ -204,6 +225,8 @@ async def api_generate(request: Request):
     params = await request.json()
     await acquire_worker_semaphore()
     output = await asyncio.to_thread(worker.generate_gate, params)
+    # 在老版本中, FastChat模型部署后, 当前面有流式调用正在输出, 随后新增一个非流式调用时, 流式调用会完全停滞
+    # GPU会被非流式调用全部侵占, 这是因为老版model_worker.py使用的是output = worker.generate_gate(params)运行非流式调用
     release_worker_semaphore()
     return JSONResponse(output)
 

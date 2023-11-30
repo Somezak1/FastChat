@@ -26,6 +26,7 @@ from fastchat.modules.xfastertransformer import XftConfig
 from fastchat.modules.gptq import GptqConfig
 from fastchat.serve.base_model_worker import BaseModelWorker, app
 from fastchat.utils import (
+from fastchat.utils import (
     build_logger,
     get_context_length,
     str_to_torch_dtype,
@@ -33,23 +34,11 @@ from fastchat.utils import (
 
 
 worker_id = str(uuid.uuid4())[:8]
+# 记录worker的日志
 logger = build_logger("model_worker", f"model_worker_{worker_id}.log")
 
-'''
-app = FastAPI()
 
-
-def heart_beat_worker(obj):
-    while True:
-        time.sleep(WORKER_HEART_BEAT_INTERVAL)
-        # WORKER_HEART_BEAT_INTERVAL: 45
-        obj.send_heart_beat()
-
-
-class BaseModelWorker:
-    '''
-    BaseModelWorker类主要负责与controller通信, ModelWorker类主要负责推断
-    '''
+class ModelWorker(BaseModelWorker):
     def __init__(
         self,
         controller_addr: str,
@@ -59,212 +48,41 @@ class BaseModelWorker:
         worker_id: str,
         # worker_id: 一个每次运行都不固定的字符串, 这里以'e73850d4'举例
         model_path: str,
-        # model_path: '/data1/csw_model_weights/vicuna-7b-v1.3'
+        # model_path: '/data1/csw_model_weights/Llama-2-13b-chat-hf'
         model_names: List[str],
         # model_names: None
         limit_worker_concurrency: int,
         # limit_worker_concurrency: 5
-        conv_template: str = None,
-    ):
-        self.controller_addr = controller_addr
-        self.worker_addr = worker_addr
-        self.worker_id = worker_id
-        if model_path.endswith("/"):
-            model_path = model_path[:-1]
-        self.model_names = model_names or [model_path.split("/")[-1]]
-        self.limit_worker_concurrency = limit_worker_concurrency
-
-        if conv_template:
-            self.conv = get_conv_template(conv_template)
-        else:
-            # 根据model_path, 即可知道与之匹配的对话模板
-            self.conv = get_conversation_template(model_path)
-            # 根据model_path路径名称对应的adapter, 匹配其对应的对话模板
-            # if model_path == /data1/csw_model_weights/OriginOne, conv:
-            # Conversation(
-            #     name="one_shot",
-            #     system="A chat between a curious human and an artificial intelligence assistant. "
-            #     "The assistant gives helpful, detailed, and polite answers to the human's questions.",
-            #     roles=("Human", "Assistant"),
-            #     messages=(
-            #         (
-            #             "Human",
-            #             "Got any creative ideas for a 10 year old’s birthday?",
-            #         ),
-            #         (
-            #             "Assistant",
-            #             """Of course! Here are some creative ideas for a 10-year-old's birthday party:
-            # 1. Treasure Hunt: Organize a treasure hunt in your backyard or nearby park. Create clues and riddles for the kids to solve, leading them to hidden treasures and surprises.
-            # 2. Science Party: Plan a science-themed party where kids can engage in fun and interactive experiments. You can set up different stations with activities like making slime, erupting volcanoes, or creating simple chemical reactions.
-            # 3. Outdoor Movie Night: Set up a backyard movie night with a projector and a large screen or white sheet. Create a cozy seating area with blankets and pillows, and serve popcorn and snacks while the kids enjoy a favorite movie under the stars.
-            # 4. DIY Crafts Party: Arrange a craft party where kids can unleash their creativity. Provide a variety of craft supplies like beads, paints, and fabrics, and let them create their own unique masterpieces to take home as party favors.
-            # 5. Sports Olympics: Host a mini Olympics event with various sports and games. Set up different stations for activities like sack races, relay races, basketball shooting, and obstacle courses. Give out medals or certificates to the participants.
-            # 6. Cooking Party: Have a cooking-themed party where the kids can prepare their own mini pizzas, cupcakes, or cookies. Provide toppings, frosting, and decorating supplies, and let them get hands-on in the kitchen.
-            # 7. Superhero Training Camp: Create a superhero-themed party where the kids can engage in fun training activities. Set up an obstacle course, have them design their own superhero capes or masks, and organize superhero-themed games and challenges.
-            # 8. Outdoor Adventure: Plan an outdoor adventure party at a local park or nature reserve. Arrange activities like hiking, nature scavenger hunts, or a picnic with games. Encourage exploration and appreciation for the outdoors.
-            # Remember to tailor the activities to the birthday child's interests and preferences. Have a great celebration!""",
-            #         ),
-            #     ),
-            #     offset=2,
-            #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
-            #     sep="\n### ",
-            #     stop_str="###",
-            # )
-
-            # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, conv:
-            # Conversation(
-            #     name="vicuna_v1.1",
-            #     system="A chat between a curious user and an artificial intelligence assistant. "
-            #     "The assistant gives helpful, detailed, and polite answers to the user's questions.",
-            #     roles=("USER", "ASSISTANT"),
-            #     messages=(),
-            #     offset=0,
-            #     sep_style=SeparatorStyle.ADD_COLON_TWO,
-            #     sep=" ",
-            #     sep2="</s>",
-            # )
-
-        self.conv.sep_style = int(self.conv.sep_style)
-        self.tokenizer = None
-        self.context_len = None
-        # self.call_ct 调用次数计数
-        self.call_ct = 0
-        self.semaphore = None
-
-        self.heart_beat_thread = None
-
-    def init_heart_beat(self):
-        '''
-        向controller报备完毕之后, 程序会单独再开一个线程
-        该线程每隔45秒会向controller报备一下, 确保worker与controller之间的连接畅通
-        如果当次报备失败, 则间隔5秒重新报备, 直至成功
-        '''
-        self.register_to_controller()
-        self.heart_beat_thread = threading.Thread(
-            target=heart_beat_worker,
-            args=(self,),
-            daemon=True,
-        )
-        self.heart_beat_thread.start()
-
-    def register_to_controller(self):
-        '''
-        向controller发送一个包含自身信息的data, 报备一下, 确保通信畅通
-        如果报备失败, 则程序会报错
-        '''
-        logger.info("Register to controller")
-
-        url = self.controller_addr + "/register_worker"
-        # url: 'http://{controller_ip}:21001/register_worker'
-        data = {
-            "worker_name": self.worker_addr,
-            "check_heart_beat": True,
-            "worker_status": self.get_status(),
-            # self.get_status():
-            # {
-            #   "model_names": 'vicuna-7b-v1.3',
-            #   "speed": 1,
-            #   "queue_length": 0,
-            # }
-        }
-        r = requests.post(url, json=data)
-        assert r.status_code == 200
-
-    def send_heart_beat(self):
-        logger.info(
-            f"Send heart beat. Models: {self.model_names}. "
-            f"Semaphore: {pretty_print_semaphore(self.semaphore)}. "
-            f"call_ct: {self.call_ct}. "
-            f"worker_id: {self.worker_id}. "
-        )
-        # 'Send heart beat. Models: ['vicuna-7b-v1.3']. Semaphore: None. call_ct: 0. worker_id: e73850d4.'
-
-        url = self.controller_addr + "/receive_heart_beat"
-        # url: 'http://{controller_ip}:21001/receive_heart_beat'
-
-        while True:
-            try:
-                ret = requests.post(
-                    url,
-                    json={
-                        "worker_name": self.worker_addr,
-                        # self.worker_addr: 'http://{worker_ip}:21002'
-                        "queue_length": self.get_queue_length(),
-                        # self.get_queue_length(): 0
-                    },
-                    timeout=5,
-                )
-                exist = ret.json()["exist"]
-                break
-            except (requests.exceptions.RequestException, KeyError) as e:
-                logger.error(f"heart beat error: {e}")
-            time.sleep(5)
-
-        if not exist:
-            self.register_to_controller()
-
-    def get_queue_length(self):
-        if (
-            self.semaphore is None
-            or self.semaphore._value is None
-            or self.semaphore._waiters is None
-        ):
-            return 0
-        else:
-            return (
-                self.limit_worker_concurrency
-                - self.semaphore._value
-                + len(self.semaphore._waiters)
-            )
-
-    def get_status(self):
-        return {
-            "model_names": self.model_names,
-            "speed": 1,
-            "queue_length": self.get_queue_length(),
-        }
-
-    def count_token(self, params):
-        prompt = params["prompt"]
-        input_ids = self.tokenizer(prompt).input_ids
-        input_echo_len = len(input_ids)
-
-        ret = {
-            "count": input_echo_len,
-            "error_code": 0,
-        }
-        return ret
-
-    def get_conv_template(self):
-        return {"conv": self.conv}
-'''
-
-
-class ModelWorker(BaseModelWorker):
-    def __init__(
-        self,
-        controller_addr: str,
-        worker_addr: str,
-        worker_id: str,
-        model_path: str,
-        model_names: List[str],
-        limit_worker_concurrency: int,
         no_register: bool,
+        # no_register: False
         device: str,
+        # device: 'cuda'
         num_gpus: int,
+        # num_gpus: 1
         max_gpu_memory: str,
+        # max_gpu_memory: None
         dtype: Optional[torch.dtype] = None,
+        # dtype: None
         load_8bit: bool = False,
+        # load_8bit: False
         cpu_offloading: bool = False,
+        # cpu_offloading: False
         gptq_config: Optional[GptqConfig] = None,
         awq_config: Optional[AWQConfig] = None,
         exllama_config: Optional[ExllamaConfig] = None,
+        # exllama_config: None
         xft_config: Optional[XftConfig] = None,
+        # xft_config: None
         stream_interval: int = 2,
+        # stream_interval: 2
         conv_template: Optional[str] = None,
+        # conv_template: 'llama-2'
         embed_in_truncate: bool = False,
+        # embed_in_truncate: False
         seed: Optional[int] = None,
+        # seed: None
         debug: bool = False,
+        # debug: False
         **kwargs,
     ):
         super().__init__(
@@ -278,6 +96,7 @@ class ModelWorker(BaseModelWorker):
         )
 
         logger.info(f"Loading the model {self.model_names} on worker {worker_id} ...")
+        # 加载模型权重和tokenizer
         self.model, self.tokenizer = load_model(
             model_path,
             device=device,
@@ -296,16 +115,15 @@ class ModelWorker(BaseModelWorker):
         if self.tokenizer.pad_token == None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.context_len = get_context_length(self.model.config)
-        # 读取config.json文件里的内容获得模型所能支持的最大上下文长度
+        # 读取config.json文件里的内容获得模型所能支持的最大上下文长度, Llama-2-13b-chat-hf是4096
         self.generate_stream_func = get_generate_stream_function(self.model, model_path)
-        # 只要模型不是chatglm/falcon/codet5p, 那么generate_stream_func就是generate_stream
-        # if model_path == /data1/csw_model_weights/OriginOne, generate_stream_func: fastchat.serve.inference.generate_stream
-        # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, generate_stream_func: fastchat.serve.inference.generate_stream
+        # 只要模型不是chatglm/falcon/codet5p/exllama/xft, 那么generate_stream_func就是fastchat.serve.inference.generate_stream
         self.stream_interval = stream_interval
         self.embed_in_truncate = embed_in_truncate
         self.seed = seed
 
         if not no_register:
+            # 单独开一个线程, 该线程每隔45秒会向controller报备一下, 确保worker与controller之间的连接畅通
             self.init_heart_beat()
 
     def generate_stream_gate(self, params):
@@ -314,6 +132,7 @@ class ModelWorker(BaseModelWorker):
         try:
             if self.seed is not None:
                 set_seed(self.seed)
+            # self.generate_stream_func()是一个由yield关键字控制返回的生成器
             for output in self.generate_stream_func(
                 self.model,
                 self.tokenizer,
@@ -322,23 +141,40 @@ class ModelWorker(BaseModelWorker):
                 self.context_len,
                 self.stream_interval,
             ):
-                # if model_path == /data1/csw_model_weights/vicuna-7b-v1.3, 则历次的output为:
+
+                # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+                #     "model":"Llama-2-13b-chat-hf",
+                #     "max_tokens":500,
+                #     "messages":[{"content":"What is the boiling point of water","role":"user"}],
+                #     "stream":true,
+                #     "temperature":0
+                #   }'
+                # 则历次的output为:
                 '''
-                {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
-                {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
-                {'text': 'I am Vicuna,', 'usage': {'prompt_tokens': 42, 'completion_tokens': 4, 'total_tokens': 46}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language', 'usage': {'prompt_tokens': 42, 'completion_tokens': 6, 'total_tokens': 48}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained', 'usage': {'prompt_tokens': 42, 'completion_tokens': 8, 'total_tokens': 50}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by research', 'usage': {'prompt_tokens': 42, 'completion_tokens': 10, 'total_tokens': 52}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from', 'usage': {'prompt_tokens': 42, 'completion_tokens': 12, 'total_tokens': 54}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large', 'usage': {'prompt_tokens': 42, 'completion_tokens': 14, 'total_tokens': 56}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems', 'usage': {'prompt_tokens': 42, 'completion_tokens': 16, 'total_tokens': 58}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization', 'usage': {'prompt_tokens': 42, 'completion_tokens': 18, 'total_tokens': 60}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (L', 'usage': {'prompt_tokens': 42, 'completion_tokens': 20, 'total_tokens': 62}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS', 'usage': {'prompt_tokens': 42, 'completion_tokens': 22, 'total_tokens': 64}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': None}
-                {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': 'stop'}
+                {'text': '', 'usage': {'prompt_tokens': 16, 'completion_tokens': 0, 'total_tokens': 16}, 'finish_reason': None}
+                {'text': ' The bo', 'usage': {'prompt_tokens': 16, 'completion_tokens': 2, 'total_tokens': 18}, 'finish_reason': None}
+                {'text': ' The boiling point', 'usage': {'prompt_tokens': 16, 'completion_tokens': 4, 'total_tokens': 20}, 'finish_reason': None}
+                {'text': ' The boiling point of water', 'usage': {'prompt_tokens': 16, 'completion_tokens': 6, 'total_tokens': 22}, 'finish_reason': None}
+                {'text': ' The boiling point of water is ', 'usage': {'prompt_tokens': 16, 'completion_tokens': 8, 'total_tokens': 24}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 10', 'usage': {'prompt_tokens': 16, 'completion_tokens': 10, 'total_tokens': 26}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees', 'usage': {'prompt_tokens': 16, 'completion_tokens': 12, 'total_tokens': 28}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsi', 'usage': {'prompt_tokens': 16, 'completion_tokens': 14, 'total_tokens': 30}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (', 'usage': {'prompt_tokens': 16, 'completion_tokens': 16, 'total_tokens': 32}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C', 'usage': {'prompt_tokens': 16, 'completion_tokens': 18, 'total_tokens': 34}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or', 'usage': {'prompt_tokens': 16, 'completion_tokens': 20, 'total_tokens': 36}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 2', 'usage': {'prompt_tokens': 16, 'completion_tokens': 22, 'total_tokens': 38}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212', 'usage': {'prompt_tokens': 16, 'completion_tokens': 24, 'total_tokens': 40}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees F', 'usage': {'prompt_tokens': 16, 'completion_tokens': 26, 'total_tokens': 42}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit', 'usage': {'prompt_tokens': 16, 'completion_tokens': 28, 'total_tokens': 44}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°', 'usage': {'prompt_tokens': 16, 'completion_tokens': 30, 'total_tokens': 46}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F)', 'usage': {'prompt_tokens': 16, 'completion_tokens': 32, 'total_tokens': 48}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard', 'usage': {'prompt_tokens': 16, 'completion_tokens': 34, 'total_tokens': 50}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospher', 'usage': {'prompt_tokens': 16, 'completion_tokens': 36, 'total_tokens': 52}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure', 'usage': {'prompt_tokens': 16, 'completion_tokens': 38, 'total_tokens': 54}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure.', 'usage': {'prompt_tokens': 16, 'completion_tokens': 40, 'total_tokens': 56}, 'finish_reason': None}
+                {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure.', 'usage': {'prompt_tokens': 16, 'completion_tokens': 40, 'total_tokens': 56}, 'finish_reason': 'stop'}
                 '''
+                # 这里每行output正好可以对应该请求流式返回的结果, 最后一行output的内容也对应非流式请求返回的结果
                 ret = {
                     "text": output["text"],
                     "error_code": 0,
@@ -373,6 +209,8 @@ class ModelWorker(BaseModelWorker):
     def generate_gate(self, params):
         for x in self.generate_stream_gate(params):
             pass
+        # 直接取生成器结果的最后一个返回
+        # [:-1]是为了将末尾添加的b"\0"去除
         return json.loads(x[:-1].decode())
 
     def __process_embed_chunk(self, input_ids, attention_mask, **model_type_dict):
@@ -491,24 +329,25 @@ class ModelWorker(BaseModelWorker):
 def create_model_worker():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
-    # 如果controller和worker不在同一台机器上开启, 那么host参数要填worker的ip地址, 同时还得指定worker_address和controller_address
     parser.add_argument("--port", type=int, default=21002)
     parser.add_argument("--worker-address", type=str, default="http://localhost:21002")
-    # --worker-address的默认参数值得改成"http://{worker_ip}:21002"形式
     parser.add_argument(
         "--controller-address", type=str, default="http://localhost:21001"
     )
-    # --controller-address的默认参数值得改成"http://{controller_ip}:21001"形式
     add_model_args(parser)
+    # model_name是worker所加载权重的代号, 如不指定会从权重路径中提取
+    # 多个worker可以共享同一个model_name
     parser.add_argument(
         "--model-names",
         type=lambda s: s.split(","),
         help="Optional display comma separated names",
     )
+    # 对话模板
     parser.add_argument(
         "--conv-template", type=str, default=None, help="Conversation prompt template."
     )
     parser.add_argument("--embed-in-truncate", action="store_true")
+    # 并发数量
     parser.add_argument(
         "--limit-worker-concurrency",
         type=int,
@@ -530,28 +369,43 @@ def create_model_worker():
     logger.info(f"args: {args}")
     # args:
     # Namespace(
-    # 	host='localhost',
-    # 	port=21002,
-    # 	worker_address='http://{worker_ip}:21002',
-    # 	controller_address='http://{controller_ip}:21001',
-    # 	model_path='/data1/csw_model_weights/vicuna-7b-v1.3',
-    # 	revision='main',
-    # 	device='cuda',
-    # 	gpus=None,
-    # 	num_gpus=1,
-    # 	max_gpu_memory=None,
-    # 	load_8bit=False,
-    # 	cpu_offloading=False,
-    # 	gptq_ckpt=None,
-    # 	gptq_wbits=16,
-    # 	gptq_groupsize=-1,
-    # 	gptq_act_order=False,
-    # 	model_names=None,
-    # 	limit_worker_concurrency=5,
-    # 	stream_interval=2,
-    # 	no_register=False
+    #   host='localhost',
+    #   port=21002,
+    #   worker_address='http://localhost:21002',
+    #   controller_address='http://localhost:21001',
+    #   model_path='/data1/csw_model_weights/Llama-2-13b-chat-hf',
+    #   revision='main',
+    #   device='cuda',
+    #   gpus=None,
+    #   num_gpus=1,
+    #   max_gpu_memory=None,
+    #   dtype=None,
+    #   load_8bit=False,
+    #   cpu_offloading=False,
+    #   gptq_ckpt=None,
+    #   gptq_wbits=16,
+    #   gptq_groupsize=-1,
+    #   gptq_act_order=False,
+    #   awq_ckpt=None,
+    #   awq_wbits=16,
+    #   awq_groupsize=-1,
+    #   enable_exllama=False,
+    #   exllama_max_seq_len=4096,
+    #   exllama_gpu_split=None,
+    #   enable_xft=False,
+    #   xft_max_seq_len=4096,
+    #   xft_dtype=None,
+    #   model_names=None,
+    #   conv_template='llama-2',
+    #   embed_in_truncate=False,
+    #   limit_worker_concurrency=5,
+    #   stream_interval=2,
+    #   no_register=False,
+    #   seed=None,
+    #   debug=False
     # )
 
+    # args.gpus: None
     if args.gpus:
         if len(args.gpus.split(",")) < args.num_gpus:
             raise ValueError(
@@ -573,6 +427,8 @@ def create_model_worker():
         wbits=args.awq_wbits,
         groupsize=args.awq_groupsize,
     )
+
+    # args.enable_exllama: False
     if args.enable_exllama:
         exllama_config = ExllamaConfig(
             max_seq_len=args.exllama_max_seq_len,
@@ -580,6 +436,8 @@ def create_model_worker():
         )
     else:
         exllama_config = None
+
+    # args.enable_xft: False
     if args.enable_xft:
         xft_config = XftConfig(
             max_seq_len=args.xft_max_seq_len,
@@ -599,7 +457,7 @@ def create_model_worker():
         worker_id,
         # worker_id: 一个每次运行都不固定的字符串, 这里以'e73850d4'举例
         args.model_path,
-        # args.model_path: '/data1/csw_model_weights/vicuna-7b-v1.3'
+        # args.model_path: '/data1/csw_model_weights/Llama-2-13b-chat-hf'
         args.model_names,
         # args.model_names: None
         args.limit_worker_concurrency,
@@ -613,6 +471,7 @@ def create_model_worker():
         max_gpu_memory=args.max_gpu_memory,
         # args.max_gpu_memory: None
         dtype=str_to_torch_dtype(args.dtype),
+        # str_to_torch_dtype(None): None
         load_8bit=args.load_8bit,
         # args.load_8bit: False
         cpu_offloading=args.cpu_offloading,
@@ -620,17 +479,27 @@ def create_model_worker():
         gptq_config=gptq_config,
         awq_config=awq_config,
         exllama_config=exllama_config,
+        # exllama_config: None
         xft_config=xft_config,
+        # xft_config: None
         stream_interval=args.stream_interval,
         # args.stream_interval: 2
         conv_template=args.conv_template,
+        # args.conv_template: 'llama-2'
         embed_in_truncate=args.embed_in_truncate,
+        # args.embed_in_truncate: False
         seed=args.seed,
+        # args.seed: None
         debug=args.debug,
+        # args.debug: False
     )
     return args, worker
 
 
 if __name__ == "__main__":
+    # 此代码及base_model_worker.py的注释都是基于如下指令debug获得的
+    # ================================================================================================================
+    # python3 -m fastchat.serve.model_worker --model-path /data1/csw_model_weights/Llama-2-13b-chat-hf --conv-template llama-2
+    # ================================================================================================================
     args, worker = create_model_worker()
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
