@@ -87,11 +87,11 @@ class BaseModelWorker:
         return conv
 
     def init_heart_beat(self):
-        '''
+        """
         向controller报备完毕之后, 程序会再单独开一个线程
         该线程每隔45秒会向controller报备一下, 确保worker与controller之间的连接畅通
         如果当次报备失败, 则间隔5秒重新报备, 直至成功
-        '''
+        """
         self.register_to_controller()
         self.heart_beat_thread = threading.Thread(
             target=heart_beat_worker,
@@ -101,10 +101,10 @@ class BaseModelWorker:
         self.heart_beat_thread.start()
 
     def register_to_controller(self):
-        '''
+        """
         向controller发送一个包含自身信息的data, 报备一下, 确保通信畅通
         如果报备失败, 则程序会报错
-        '''
+        """
         logger.info("Register to controller")
 
         url = self.controller_addr + "/register_worker"
