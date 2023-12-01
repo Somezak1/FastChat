@@ -101,9 +101,9 @@ if __name__ == "__main__":
     parser.add_argument("--worker-address", type=str)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument(
-        "--message", type=str, default="Who are you"
+        "--message", type=str, default="Tell me a story with more than 1000 words."
     )
     args = parser.parse_args()
 
