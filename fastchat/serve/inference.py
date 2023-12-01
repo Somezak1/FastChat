@@ -238,6 +238,7 @@ def generate_stream(
     token_logprobs = [None]  # The first token has no logprobs.
     sent_interrupt = False
     finish_reason = None
+    stopped = False
     for i in range(max_new_tokens):
         # 模型在一次回答中能够输出的最长回答是max_new_tokens个token
         if i == 0:  # prefill
