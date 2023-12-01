@@ -35,19 +35,24 @@ class SeparatorStyle(IntEnum):
 class Conversation:
     """A class that manages prompt templates and keeps all conversation history."""
 
-    # The name of this template, Conversation的代号
+    # The name of this template
+    # Conversation的代号
     name: str
-    # The template of the system prompt, 系统提示语
+    # The template of the system prompt
+    # 系统提示语
     system_template: str = "{system_message}"
-    # The system message, 系统提示语
+    # The system message
+    # 系统提示语
     system_message: str = ""
     # The names of two roles
     roles: Tuple[str] = ("USER", "ASSISTANT")
     # All messages. Each item is (role, message).
     messages: List[List[str]] = ()
-    # The number of few shot examples, 没啥用的参数
+    # The number of few shot examples
+    # 没啥用的参数
     offset: int = 0
-    # The separator style and configurations, 以下三个参数决定系统提示语以及问答之间如何拼接
+    # The separator style and configurations
+    # 以下三个参数决定系统提示语以及问答之间如何拼接
     sep_style: SeparatorStyle = SeparatorStyle.ADD_COLON_SINGLE
     sep: str = "\n"
     sep2: str = None
@@ -96,6 +101,7 @@ class Conversation:
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
+        system_prompt = self.system_template.format(system_message=self.system_message)
         if self.debug:
             system_prompt = self.system_template.format(system_message='{System_Message}')
             print(f"System_Message: {repr(self.system_message)}")
@@ -998,6 +1004,7 @@ register_conv_template(
         roles=("[INST]", "[/INST]"),
         sep_style=SeparatorStyle.LLAMA2,
         sep=" ",
+        sep2=" </s><s>",
         sep2="</s>",
         stop_token_ids=[2],
     )

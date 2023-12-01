@@ -256,6 +256,7 @@ def generate_stream(
                 # logits shape: (1, 404, 32000), 404是当前prompt的token数量
             past_key_values = out.past_key_values
             # past_key_values: ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第一次循环时tensor shape: (1, 32, 404, 128)
+
             if logprobs is not None:
                 # Prefull logprobs for the prompt.
                 shift_input_ids = start_ids[..., 1:].contiguous()
@@ -741,6 +742,7 @@ def chat_loop(
             "max_new_tokens": max_new_tokens,
             # max_new_tokens: 512
             "stop": conv.stop_str,
+            "stop_token_ids": conv.stop_token_ids,
             # if conv.name == 'one_shot', conv.stop_str: "###"
             # if conv.name == 'vicuna_v1.1', conv.stop_str: None
             "stop_token_ids": conv.stop_token_ids.copy(),
@@ -755,7 +757,7 @@ def chat_loop(
 
         try:
             chatio.prompt_for_output(conv.roles[1])
-            t = time.time()
+            t1 = time.time()
             output_stream = generate_stream_func(
                 model,
                 tokenizer,
@@ -764,8 +766,10 @@ def chat_loop(
                 context_len=context_len,
                 judge_sent_end=judge_sent_end,
             )
+            t = time.time()
             outputs = chatio.stream_output(output_stream)
             duration = time.time() - t
+            duration = time.time() - t1
             conv.update_last_message(outputs.strip())
 
             if debug:
@@ -780,7 +784,8 @@ def chat_loop(
                     "prompt_tokens": prompt_tokens,
                     "output_tokens": num_tokens,
                 }
-                print(f"\n{msg}\n{cp_gen_params}\n")
+                print(f"\n{msg}\n")
+                print(f"{cp_gen_params}\n")
 
         except KeyboardInterrupt:
             print("stopped generation.")

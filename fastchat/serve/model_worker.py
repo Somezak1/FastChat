@@ -373,6 +373,7 @@ def create_model_worker():
     )
     args = parser.parse_args()
     logger.info(f"args: {args}")
+
     # args:
     # Namespace(
     #   host='localhost',
