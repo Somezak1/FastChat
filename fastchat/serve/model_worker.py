@@ -140,7 +140,6 @@ class ModelWorker(BaseModelWorker):
                 self.context_len,
                 self.stream_interval,
             ):
-
                 # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
                 #     "model":"Llama-2-13b-chat-hf",
                 #     "max_tokens":500,
@@ -373,7 +372,6 @@ def create_model_worker():
     )
     args = parser.parse_args()
     logger.info(f"args: {args}")
-
     # args:
     # Namespace(
     #   host='localhost',

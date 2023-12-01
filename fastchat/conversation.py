@@ -35,24 +35,19 @@ class SeparatorStyle(IntEnum):
 class Conversation:
     """A class that manages prompt templates and keeps all conversation history."""
 
-    # The name of this template
-    # Conversation的代号
+    # The name of this template, Conversation的代号
     name: str
-    # The template of the system prompt
-    # 系统提示语
+    # The template of the system prompt, 系统提示语
     system_template: str = "{system_message}"
-    # The system message
-    # 系统提示语
+    # The system message, 系统提示语
     system_message: str = ""
     # The names of two roles
     roles: Tuple[str] = ("USER", "ASSISTANT")
     # All messages. Each item is (role, message).
     messages: List[List[str]] = ()
-    # The number of few shot examples
-    # 没啥用的参数
+    # The number of few shot examples, 没啥用的参数
     offset: int = 0
-    # The separator style and configurations
-    # 以下三个参数决定系统提示语以及问答之间如何拼接
+    # The separator style and configurations, 以下三个参数决定系统提示语以及问答之间如何拼接
     sep_style: SeparatorStyle = SeparatorStyle.ADD_COLON_SINGLE
     sep: str = "\n"
     sep2: str = None
@@ -68,14 +63,14 @@ class Conversation:
         if self.debug:
             print(f"User: {repr(self.roles[0])}")
             print(f"Assistant: {repr(self.roles[1])}")
-            self.roles = ['{User}', '{Assistant}']
+            self.roles = ["{User}", "{Assistant}"]
 
             if len(self.messages) == 2:
                 print(f"Q0: {repr(self.messages[0][1])}")
                 print(f"A0: {repr(self.messages[1][1])}")
                 self.messages2 = []
-                self.messages2.append([self.roles[0], '{Q0}'])
-                self.messages2.append([self.roles[1], '{A0}'])
+                self.messages2.append([self.roles[0], "{Q0}"])
+                self.messages2.append([self.roles[1], "{A0}"])
                 self.messages = self.messages2
 
     # Conversation(
@@ -101,14 +96,17 @@ class Conversation:
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
-        system_prompt = self.system_template.format(system_message=self.system_message)
         if self.debug:
-            system_prompt = self.system_template.format(system_message='{System_Message}')
+            system_prompt = self.system_template.format(
+                system_message="{System_Message}"
+            )
             print(f"System_Message: {repr(self.system_message)}")
             print(f"Prompt: {repr(system_prompt)}")
-            system_prompt = '{Prompt}'
+            system_prompt = "{Prompt}"
         else:
-            system_prompt = self.system_template.format(system_message=self.system_message)
+            system_prompt = self.system_template.format(
+                system_message=self.system_message
+            )
             print(f"\nPrompt: {repr(system_prompt)}")
 
         if self.sep_style == SeparatorStyle.ADD_COLON_SINGLE:
@@ -1004,7 +1002,6 @@ register_conv_template(
         roles=("[INST]", "[/INST]"),
         sep_style=SeparatorStyle.LLAMA2,
         sep=" ",
-        sep2=" </s><s>",
         sep2="</s>",
         stop_token_ids=[2],
     )
@@ -1321,20 +1318,22 @@ register_conv_template(
 )
 
 if __name__ == "__main__":
-    template_name = 'baichuan-chat'
+    template_name = "baichuan-chat"
 
     pre_conv = get_conv_template(template_name)
     pre_conv.get_prompt()
 
     for idx, seq in enumerate(
-            [
-                ["{Q1}", None],
-                ["{Q1}", "{A1}", "{Q2}", None],
-                ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", None],
-                ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", "{A3}"]
-            ]
+        [
+            ["{Q1}", None],
+            ["{Q1}", "{A1}", "{Q2}", None],
+            ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", None],
+            ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", "{A3}"],
+        ]
     ):
-        print(f"\n============================================={idx+1}===============================================")
+        print(
+            f"\n============================================={idx+1}==============================================="
+        )
         pre_conv = get_conv_template(template_name)
         temp = Conversation(
             name=pre_conv.name,
@@ -1348,7 +1347,7 @@ if __name__ == "__main__":
             sep2=pre_conv.sep2,
             stop_str=pre_conv.stop_str,
             stop_token_ids=pre_conv.stop_token_ids,
-            debug=True
+            debug=True,
         )
         for i, content in enumerate(seq):
             temp.append_message(temp.roles[i % 2], content)

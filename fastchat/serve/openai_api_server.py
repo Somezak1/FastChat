@@ -37,7 +37,6 @@ from fastchat.protocol.openai_api_protocol import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionResponseStreamChoice,
-    ChatCompletionStreamResponse,
     ChatMessage,
     ChatCompletionResponseChoice,
     CompletionRequest,
@@ -91,7 +90,6 @@ async def fetch_remote(url, pload=None, name=None):
                     # ErrorCode.INTERNAL_ERROR: 50001
                 }
                 return json.dumps(ret)
-
             async for chunk, _ in response.content.iter_chunks():
                 chunks.append(chunk)
         output = b"".join(chunks)
@@ -515,7 +513,6 @@ async def create_chat_completion(request: ChatCompletionRequest):
         gen_params["max_new_tokens"],
         worker_addr,
     )
-
     if error_check_ret is not None:
         return error_check_ret
 
@@ -599,6 +596,9 @@ async def chat_completion_stream_generator(
         #     role: Optional[str] = None
         #     content: Optional[str] = None
 
+        chunk = ChatCompletionStreamResponse(
+            id=id, choices=[choice_data], model=model_name, usage=usage
+        )
         # class ChatCompletionStreamResponse(BaseModel):
         #     id: str = Field(default_factory=lambda: f"chatcmpl-{shortuuid.random()}")
         #     object: str = "chat.completion.chunk"
@@ -606,12 +606,8 @@ async def chat_completion_stream_generator(
         #     model: str
         #     choices: List[ChatCompletionResponseStreamChoice]
         #     usage: UsageInfo
-        chunk = ChatCompletionStreamResponse(
-            id=id, choices=[choice_data], model=model_name
-            , usage=usage
-        )
-        yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
 
+        yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
         # 调用:
         # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
         #     "model":"Llama-2-13b-chat-hf",
@@ -653,8 +649,7 @@ async def chat_completion_stream_generator(
 
             task_usage = UsageInfo.parse_obj(content["usage"])
             chunk = ChatCompletionStreamResponse(
-                id=id, choices=[choice_data], model=model_name
-                , usage=task_usage
+                id=id, choices=[choice_data], model=model_name, usage=task_usage
             )
             # class ChatCompletionStreamResponse(BaseModel):
             #     id: str = Field(default_factory=lambda: f"chatcmpl-{shortuuid.random()}")
@@ -717,12 +712,9 @@ async def chat_completion_stream_generator(
         # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "object": "chat.completion.chunk", "created": 1701347972, "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 16, "total_tokens": 56, "completion_tokens": 40}}
     e_time = time.time()
     speed = finish_chunk.usage.completion_tokens / (e_time - s_time)
-    yield "data: [DONE]\n\n"
-    yield f"cost: {e_time - s_time:.1f} s  speed: {speed:.1f} tokens/s\n\n"
+    yield f"data: [DONE]  cost: {e_time - s_time:.1f} s  speed: {speed:.1f} tokens/s\n\n"
     # 打印信息例举:
-    # data: [DONE]
-    #
-    # cost: 1.5 s  speed: 26.5 tokens/s
+    # data: [DONE]  cost: 1.5 s  speed: 26.5 tokens/s
 
 
 @app.post("/v1/completions", dependencies=[Depends(check_api_key)])
@@ -963,7 +955,6 @@ async def get_embedding(payload: Dict[str, Any]):
 
 @app.post("/api/v1/token_check")
 async def count_tokens(request: APITokenCheckRequest):
-
     # class APITokenCheckRequestItem(BaseModel):
     #     model: str
     #     prompt: str

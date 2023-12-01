@@ -105,11 +105,15 @@ class DataCollatorForSupervisedDataset(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids, labels = tuple(
+            [instance[key] for instance in instances] for key in ("input_ids", "labels")
+        )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-100)
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=-100
+        )
         return dict(
             input_ids=input_ids,
             labels=labels,
@@ -119,15 +123,16 @@ class DataCollatorForSupervisedDataset(object):
 
 def _z3_params_to_fetch(param_list):
     return [
-        p for p in param_list
-        if hasattr(p, 'ds_id') and p.ds_status == ZeroParamStatus.NOT_AVAILABLE
+        p
+        for p in param_list
+        if hasattr(p, "ds_id") and p.ds_status == ZeroParamStatus.NOT_AVAILABLE
     ]
 
 
 def save_zero_three_model(trainer, training_args, zero_stage_3):
     os.makedirs(training_args.output_dir, exist_ok=True)
     model_ema = trainer.model
-    model_to_save = model_ema.module if hasattr(model_ema, 'module') else model_ema
+    model_to_save = model_ema.module if hasattr(model_ema, "module") else model_ema
 
     if not zero_stage_3:
         if training_args.local_rank == 0:
@@ -137,8 +142,10 @@ def save_zero_three_model(trainer, training_args, zero_stage_3):
     else:
         output_state_dict = {}
         for k, v in model_to_save.named_parameters():
-            if hasattr(v, 'ds_id'):
-                with deepspeed.zero.GatheredParameters(_z3_params_to_fetch([v]), enabled=zero_stage_3):
+            if hasattr(v, "ds_id"):
+                with deepspeed.zero.GatheredParameters(
+                    _z3_params_to_fetch([v]), enabled=zero_stage_3
+                ):
                     v_p = v.data.cpu()
             else:
                 v_p = v.cpu()
@@ -172,8 +179,8 @@ def preprocess(
     # 注意, 这里使用的是vicuna的对话模板
     conv_name = "llama-2"
     conv = get_conversation_template(conv_name)
-    if conv_name == 'vicuna_v1.1':
-        conv.sep2 = '</s> '
+    if conv_name == "vicuna_v1.1":
+        conv.sep2 = "</s> "
     if conv_name == "llama-2":
         conv.sep2 = "</s>"
     # conv: Conversation(name='vicuna_v1.1', ...)
@@ -194,9 +201,9 @@ def preprocess(
             # Skip the first one if it is not from human
             source = source[1:]
 
-        if conv_name == 'llama-2':
+        if conv_name == "llama-2":
             lang = detect(source[0]["value"])
-            if lang == 'zh-cn':
+            if lang == "zh-cn":
                 conv.system_message = "你是一个乐于助人、恭敬而诚实的助手。在保证安全的前提下，回答要尽可能有帮助。如果一个问题没有任何意义，或者与事实不一致，解释为什么，而不是回答不正确的问题。如果你不知道问题的答案，请不要分享虚假信息。"
             else:
                 conv.system_message = "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."
@@ -251,10 +258,10 @@ def preprocess(
     # assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets. Only compute loss on the assistant outputs.
-    if conv_name == 'vicuna_v1.1':
+    if conv_name == "vicuna_v1.1":
         sep = conv.sep + conv.roles[1] + ":"
-    elif conv_name == 'llama-2':
-        sep = f' {conv.roles[1]} '
+    elif conv_name == "llama-2":
+        sep = f" {conv.roles[1]} "
 
     for k in range(len(conversations)):
         conversation = conversations[k]
@@ -316,7 +323,7 @@ def preprocess(
             if turn == "":
                 break
             # -1 是为了去除tokenizer默认加在开头的'<s>'
-            if conv_name == 'vicuna_v1.1':
+            if conv_name == "vicuna_v1.1":
                 turn_len = len(tokenizer(turn + conv.sep2).input_ids) - 1 - 1
             else:
                 turn_len = len(tokenizer(turn + conv.sep2).input_ids) - 1
@@ -394,7 +401,7 @@ def preprocess(
 
         target[cur_len:] = IGNORE_TOKEN_ID
         targets.append(target)
-        if conv_name == 'vicuna_v1.1':
+        if conv_name == "vicuna_v1.1":
             cur_len += 1
 
         if False:  # Inspect and check the correctness of masking
@@ -712,7 +719,7 @@ def train():
         use_fast=False,
         # use_fast: Use a fast Rust-based tokenizer if it is supported for a given model.
         # If a fast tokenizer is not available for a given model, a normal Python-based tokenizer is returned instead.
-        trust_remote_code = model_args.trust_remote_code,
+        trust_remote_code=model_args.trust_remote_code,
     )
 
     if tokenizer.pad_token != tokenizer.unk_token:
@@ -724,7 +731,11 @@ def train():
 
     # Start trainner
     trainer = Trainer(
-        model=model, tokenizer=tokenizer, args=training_args, data_collator=data_collator, **data_module
+        model=model,
+        tokenizer=tokenizer,
+        args=training_args,
+        data_collator=data_collator,
+        **data_module,
     )
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
