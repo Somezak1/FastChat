@@ -26,7 +26,6 @@ from fastchat.modules.xfastertransformer import XftConfig
 from fastchat.modules.gptq import GptqConfig
 from fastchat.serve.base_model_worker import BaseModelWorker, app
 from fastchat.utils import (
-from fastchat.utils import (
     build_logger,
     get_context_length,
     str_to_torch_dtype,
