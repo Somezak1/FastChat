@@ -56,10 +56,10 @@ class WorkerInfo:
 
 
 def heart_beat_controller(controller):
-    '''
+    """
     每隔90秒, 遍历一次controller.worker_info (controller中所有登记过的worker)
     若该worker在过去90秒内与controller没通信过, 则从controller.worker_info中删除该worker
-    '''
+    """
     while True:
         time.sleep(CONTROLLER_HEART_BEAT_EXPIRATION)
         # CONTROLLER_HEART_BEAT_EXPIRATION: 90

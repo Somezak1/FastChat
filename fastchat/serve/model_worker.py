@@ -149,7 +149,7 @@ class ModelWorker(BaseModelWorker):
                 #     "temperature":0
                 #   }'
                 # 则历次的output为:
-                '''
+                """
                 {'text': '', 'usage': {'prompt_tokens': 16, 'completion_tokens': 0, 'total_tokens': 16}, 'finish_reason': None}
                 {'text': ' The bo', 'usage': {'prompt_tokens': 16, 'completion_tokens': 2, 'total_tokens': 18}, 'finish_reason': None}
                 {'text': ' The boiling point', 'usage': {'prompt_tokens': 16, 'completion_tokens': 4, 'total_tokens': 20}, 'finish_reason': None}
@@ -172,7 +172,7 @@ class ModelWorker(BaseModelWorker):
                 {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure', 'usage': {'prompt_tokens': 16, 'completion_tokens': 38, 'total_tokens': 54}, 'finish_reason': None}
                 {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure.', 'usage': {'prompt_tokens': 16, 'completion_tokens': 40, 'total_tokens': 56}, 'finish_reason': None}
                 {'text': ' The boiling point of water is 100 degrees Celsius (°C) or 212 degrees Fahrenheit (°F) at standard atmospheric pressure.', 'usage': {'prompt_tokens': 16, 'completion_tokens': 40, 'total_tokens': 56}, 'finish_reason': 'stop'}
-                '''
+                """
                 # 这里每行output正好可以对应该请求流式返回的结果, 最后一行output的内容也对应非流式请求返回的结果
                 ret = {
                     "text": output["text"],

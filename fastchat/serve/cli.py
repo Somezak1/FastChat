@@ -63,7 +63,7 @@ class SimpleChatIO(ChatIO):
         for outputs in output_stream:
             # python3 -m fastchat.serve.cli --model-path /data1/csw_model_weights/vicuna-7b-v1.3/ --temperature 0
             # 历次的outputs:
-            '''
+            """
             {'text': 'I', 'usage': {'prompt_tokens': 42, 'completion_tokens': 0, 'total_tokens': 42}, 'finish_reason': None}
             {'text': 'I am Vic', 'usage': {'prompt_tokens': 42, 'completion_tokens': 2, 'total_tokens': 44}, 'finish_reason': None}
             {'text': 'I am Vicuna,', 'usage': {'prompt_tokens': 42, 'completion_tokens': 4, 'total_tokens': 46}, 'finish_reason': None}
@@ -78,7 +78,7 @@ class SimpleChatIO(ChatIO):
             {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS', 'usage': {'prompt_tokens': 42, 'completion_tokens': 22, 'total_tokens': 64}, 'finish_reason': None}
             {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': None}
             {'text': 'I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS).', 'usage': {'prompt_tokens': 42, 'completion_tokens': 24, 'total_tokens': 66}, 'finish_reason': 'stop'}
-            '''
+            """
             # output_text: "I am Vicuna, a language model trained by researchers from Large Model Systems Organization (LMSYS)."
 
             output_text = outputs["text"]

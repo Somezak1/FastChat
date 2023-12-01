@@ -160,7 +160,7 @@ def preprocess(
     # We adjust the training loss to account for multi-round conversations and
     # compute the fine-tuning loss solely on the chatbot's output.
 
-    '''
+    """
     sources:
     [[
         {'from': 'human', 'value': 'Who are you?'},
@@ -168,7 +168,7 @@ def preprocess(
         {'from': 'human', 'value': 'What can you do?'},
         {'from': 'gpt', 'value': 'I can chat with you.'}
     ]]
-    '''
+    """
     # 注意, 这里使用的是vicuna的对话模板
     conv_name = "llama-2"
     conv = get_conversation_template(conv_name)

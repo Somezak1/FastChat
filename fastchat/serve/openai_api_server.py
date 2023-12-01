@@ -163,10 +163,10 @@ async def validation_exception_handler(request, exc):
 
 
 async def check_model(request) -> Optional[JSONResponse]:
-    '''
+    """
     判断controller所登记的众多models中是否有request.model
     如有则返回None, 如没有则返回一个JSON格式错误响应
-    '''
+    """
     controller_address = app_settings.controller_address
     ret = None
 

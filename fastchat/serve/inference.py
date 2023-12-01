@@ -81,11 +81,11 @@ def generate_stream(
     stream_interval: int = 2,
     judge_sent_end: bool = False,
 ):
-    '''
+    """
     推断的主要过程:
     多轮对话时, 将初始prompt, 过往的多轮提问及回答拼接在一起输入模型, 从输出的概率向量中随机采样一个作为下个输出字符
     连续不停地生成下个字符, 同时每两步保存一下当前的生成信息, 并判断是否终止. 最后将生成信息返回, 用于在命令行中输出生成信息
-    '''
+    """
 
     # prompt:
     "A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions."
