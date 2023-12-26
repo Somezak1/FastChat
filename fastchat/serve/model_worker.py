@@ -60,6 +60,7 @@ class ModelWorker(BaseModelWorker):
         # num_gpus: 1
         max_gpu_memory: str,
         # max_gpu_memory: None
+        revision: str = None,
         dtype: Optional[torch.dtype] = None,
         # dtype: None
         load_8bit: bool = False,
@@ -98,6 +99,7 @@ class ModelWorker(BaseModelWorker):
         # 加载模型权重和tokenizer
         self.model, self.tokenizer = load_model(
             model_path,
+            revision=revision,
             device=device,
             num_gpus=num_gpus,
             max_gpu_memory=max_gpu_memory,
@@ -468,6 +470,7 @@ def create_model_worker():
         # args.model_names: None
         args.limit_worker_concurrency,
         # args.limit_worker_concurrency: 5
+        revision=args.revision,
         no_register=args.no_register,
         # args.no_register: False
         device=args.device,

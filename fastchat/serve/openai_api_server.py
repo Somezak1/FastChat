@@ -10,7 +10,6 @@ python3 -m fastchat.serve.openai_api_server
 import asyncio
 import argparse
 import json
-import logging
 import os
 from typing import Generator, Optional, Union, Dict, List, Any
 
@@ -60,12 +59,10 @@ from fastchat.protocol.api_protocol import (
     APITokenCheckResponse,
     APITokenCheckResponseItem,
 )
-from typing import Literal, Optional, List, Dict, Any, Union
-import time
-import shortuuid
-from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from fastchat.utils import build_logger
+
+logger = build_logger("openai_api_server", "openai_api_server.log")
 
 conv_template_map = {}
 
@@ -456,6 +453,7 @@ async def show_available_models():
     return ModelList(data=model_cards)
 
 
+@app.post("/v1chat/completions", dependencies=[Depends(check_api_key)])
 @app.post("/v1/chat/completions", dependencies=[Depends(check_api_key)])
 async def create_chat_completion(request: ChatCompletionRequest):
     """Creates a completion for the chat message"""
