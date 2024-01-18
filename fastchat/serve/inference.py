@@ -255,6 +255,7 @@ def generate_stream(
                 logits = out.logits
                 # logits shape: (1, 404, 32000), 404是当前prompt的token数量
             past_key_values = out.past_key_values
+
             # past_key_values: ((tensor, tensor)_1, ..., (tensor, tensor)_32)  第一次循环时tensor shape: (1, 32, 404, 128)
             if logprobs is not None:
                 # Prefull logprobs for the prompt.
@@ -755,7 +756,6 @@ def chat_loop(
 
         try:
             chatio.prompt_for_output(conv.roles[1])
-            t = time.time()
             output_stream = generate_stream_func(
                 model,
                 tokenizer,
@@ -764,6 +764,7 @@ def chat_loop(
                 context_len=context_len,
                 judge_sent_end=judge_sent_end,
             )
+            t = time.time()
             outputs = chatio.stream_output(output_stream)
             duration = time.time() - t
             conv.update_last_message(outputs.strip())

@@ -200,9 +200,10 @@ def load_model(
     # debug: False
 ):
     """Load a model from Hugging Face."""
+    import accelerate
     # cpu_offloading、load_8bit、gptq只能选择一个
 
-    import accelerate
+
     # get model adapter
     adapter = get_model_adapter(model_path)
     # if model_path == /data1/csw_model_weights/OriginOne, adapter: fastchat.model.model_adapter.BaseModelAdapter

@@ -37,19 +37,20 @@ class SeparatorStyle(IntEnum):
 class Conversation:
     """A class that manages prompt templates and keeps all conversation history."""
 
-    # The name of this template, Conversation的代号
+    # The name of this template
     name: str
-    # The template of the system prompt, 系统提示语
+    # The template of the system prompt
     system_template: str = "{system_message}"
-    # The system message, 系统提示语
+    # The system message
     system_message: str = ""
     # The names of two roles
     roles: Tuple[str] = ("USER", "ASSISTANT")
     # All messages. Each item is (role, message).
     messages: List[List[str]] = ()
-    # The number of few shot examples, 没啥用的参数
+    # The number of few shot examples
     offset: int = 0
-    # The separator style and configurations, 以下三个参数决定系统提示语以及问答之间如何拼接
+    # The separator style and configurations
+    # 以下三个参数决定系统提示语以及问答之间如何拼接
     sep_style: SeparatorStyle = SeparatorStyle.ADD_COLON_SINGLE
     sep: str = "\n"
     sep2: str = None
@@ -74,27 +75,6 @@ class Conversation:
                 self.messages2.append([self.roles[0], "{Q0}"])
                 self.messages2.append([self.roles[1], "{A0}"])
                 self.messages = self.messages2
-
-    # Conversation(
-    #     name="one_shot",
-    #     ...,
-    #     offset=2,
-    #     sep_style=SeparatorStyle.ADD_COLON_SINGLE,
-    #     sep="\n### ",
-    #     stop_str="###",
-    #     stop_token_ids=None, (类变量默认值)
-    # )
-
-    # Conversation(
-    #     name="vicuna_v1.1",
-    #     ...,
-    #     offset=0,
-    #     sep_style=SeparatorStyle.ADD_COLON_TWO,
-    #     sep=" ",
-    #     sep2="</s>",
-    #     stop_str=None,  (类变量默认值)
-    #     stop_token_ids=None,  (类变量默认值)
-    # )
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
@@ -1061,8 +1041,7 @@ register_conv_template(
         roles=("[INST]", "[/INST]"),
         sep_style=SeparatorStyle.LLAMA2,
         sep=" ",
-        sep2="</s>",
-        stop_token_ids=[2],
+        sep2=" </s><s>",
     )
 )
 
