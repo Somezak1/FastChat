@@ -1493,9 +1493,14 @@ if __name__ == "__main__":
             ["{Q1}", "{A1}", "{Q2}", "{A2}", "{Q3}", "{A3}"],
         ]
     ):
-        print(
-            f"\n============================================={idx+1}==============================================="
-        )
+        if idx == 3:
+            print(
+                f"\n===============================================训练时==============================================="
+            )
+        else:
+            print(
+                f"\n=============================================第{idx + 1}次问答==============================================="
+            )
         pre_conv = get_conv_template(template_name)
         temp = Conversation(
             name=pre_conv.name,
@@ -1515,7 +1520,7 @@ if __name__ == "__main__":
             temp.append_message(temp.roles[i % 2], content)
 
         strings_to_model = temp.get_prompt()
-        print(f"{idx + 1} : ", repr(strings_to_model))
+        print(f"模板 : ", repr(strings_to_model))
 
     from fastchat.conversation import get_conv_template
 
