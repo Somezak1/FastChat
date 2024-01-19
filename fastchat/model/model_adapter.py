@@ -201,8 +201,8 @@ def load_model(
 ):
     """Load a model from Hugging Face."""
     import accelerate
-    # cpu_offloading、load_8bit、gptq只能选择一个
 
+    # cpu_offloading、load_8bit、gptq只能选择一个
 
     # get model adapter
     adapter = get_model_adapter(model_path)
