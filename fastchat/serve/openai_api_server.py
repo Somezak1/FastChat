@@ -642,7 +642,7 @@ async def chat_completion_stream_generator(
         #     choices: List[ChatCompletionResponseStreamChoice]
         #     usage: UsageInfo
 
-        yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+        yield f"data: {chunk.model_dump_json(exclude_unset=True)}\n\n"
         # 调用:
         # curl http://localhost:8001/v1/chat/completions   -H "Content-Type: application/json"   -d '{
         #     "model":"Llama-2-13b-chat-hf",
@@ -698,7 +698,7 @@ async def chat_completion_stream_generator(
                 if content.get("finish_reason", None) is not None:
                     finish_stream_events.append(chunk)
                 continue
-            yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+            yield f"data: {chunk.model_dump_json(exclude_unset=True)}\n\n"
             # 打印信息例举:
             # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {"content": " The bo"}, "finish_reason": null}], "usage": {"prompt_tokens": 16, "total_tokens": 18, "completion_tokens": 2}}
             #
@@ -742,7 +742,7 @@ async def chat_completion_stream_generator(
 
     # There is not "content" field in the last delta message, so exclude_none to exclude field "content".
     for finish_chunk in finish_stream_events:
-        yield f"data: {finish_chunk.json(exclude_none=True, ensure_ascii=False)}\n\n"
+        yield f"data: {finish_chunk.model_dump_json(exclude_none=True)}\n\n"
         # 打印信息例举:
         # data: {"id": "chatcmpl-kQ9woA4Nno8DC6MEbBnFdQ", "object": "chat.completion.chunk", "created": 1701347972, "model": "Llama-2-13b-chat-hf", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 16, "total_tokens": 56, "completion_tokens": 40}}
     e_time = time.time()
@@ -883,10 +883,10 @@ async def generate_completion_stream_generator(
                     if content.get("finish_reason", None) is not None:
                         finish_stream_events.append(chunk)
                     continue
-                yield f"data: {chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+                yield f"data: {chunk.model_dump_json(exclude_unset=True)}\n\n"
     # There is not "content" field in the last delta message, so exclude_none to exclude field "content".
     for finish_chunk in finish_stream_events:
-        yield f"data: {finish_chunk.json(exclude_unset=True, ensure_ascii=False)}\n\n"
+        yield f"data: {finish_chunk.model_dump_json(exclude_unset=True)}\n\n"
     yield "data: [DONE]\n\n"
 
 
