@@ -21,7 +21,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
-from pydantic import BaseSettings
+
+try:
+    from pydantic.v1 import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings
 import shortuuid
 import tiktoken
 import uvicorn
@@ -272,10 +276,20 @@ def process_input(model_name, inp):
         inp = [inp]
     elif isinstance(inp, list):
         if isinstance(inp[0], int):
-            decoding = tiktoken.model.encoding_for_model(model_name)
+            try:
+                decoding = tiktoken.model.encoding_for_model(model_name)
+            except KeyError:
+                logger.warning("Warning: model not found. Using cl100k_base encoding.")
+                model = "cl100k_base"
+                decoding = tiktoken.get_encoding(model)
             inp = [decoding.decode(inp)]
         elif isinstance(inp[0], list):
-            decoding = tiktoken.model.encoding_for_model(model_name)
+            try:
+                decoding = tiktoken.model.encoding_for_model(model_name)
+            except KeyError:
+                logger.warning("Warning: model not found. Using cl100k_base encoding.")
+                model = "cl100k_base"
+                decoding = tiktoken.get_encoding(model)
             inp = [decoding.decode(text) for text in inp]
 
     return inp
@@ -345,6 +359,7 @@ async def get_gen_params(
 
     if isinstance(messages, str):
         prompt = messages
+        images = []
     else:
         for message in messages:
             msg_role = message["role"]
@@ -352,7 +367,22 @@ async def get_gen_params(
                 # 若调用api时指定system_content, 则会覆盖conv中原本的system_content
                 conv.set_system_message(message["content"])
             elif msg_role == "user":
-                conv.append_message(conv.roles[0], message["content"])
+                if type(message["content"]) == list:
+                    image_list = [
+                        item["image_url"]["url"]
+                        for item in message["content"]
+                        if item["type"] == "image_url"
+                    ]
+                    text_list = [
+                        item["text"]
+                        for item in message["content"]
+                        if item["type"] == "text"
+                    ]
+
+                    text = "\n".join(text_list)
+                    conv.append_message(conv.roles[0], (text, image_list))
+                else:
+                    conv.append_message(conv.roles[0], message["content"])
             elif msg_role == "assistant":
                 conv.append_message(conv.roles[1], message["content"])
             else:
@@ -362,6 +392,7 @@ async def get_gen_params(
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
         # 按conv中定义的方式将system_content+Q+A+...+Q等内容拼接在一起
+        images = conv.get_images()
 
     gen_params = {
         "model": model_name,
@@ -386,6 +417,8 @@ async def get_gen_params(
         "stop_token_ids": conv.stop_token_ids,
     }
 
+    if len(images) > 0:
+        gen_params["images"] = images
     # best_of: None
     if best_of is not None:
         gen_params.update({"best_of": best_of})
@@ -455,7 +488,6 @@ async def show_available_models():
     return ModelList(data=model_cards)
 
 
-@app.post("/v1chat/completions", dependencies=[Depends(check_api_key)])
 @app.post("/v1/chat/completions", dependencies=[Depends(check_api_key)])
 async def create_chat_completion(request: ChatCompletionRequest):
     """Creates a completion for the chat message"""
@@ -537,6 +569,9 @@ async def create_chat_completion(request: ChatCompletionRequest):
         return create_error_response(ErrorCode.INTERNAL_ERROR, str(e))
     usage = UsageInfo()
     for i, content in enumerate(all_tasks):
+        if isinstance(content, str):
+            content = json.loads(content)
+
         if content["error_code"] != 0:
             return create_error_response(content["error_code"], content["text"])
         choices.append(

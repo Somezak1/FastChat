@@ -53,6 +53,7 @@ class WorkerInfo:
     queue_length: int
     check_heart_beat: bool
     last_heart_beat: str
+    multimodal: bool
 
 
 def heart_beat_controller(controller):
@@ -84,7 +85,11 @@ class Controller:
         # 开启一个独立的线程, 专门用于监控controller与各worker之间的通信状态
 
     def register_worker(
-        self, worker_name: str, check_heart_beat: bool, worker_status: dict
+        self,
+        worker_name: str,
+        check_heart_beat: bool,
+        worker_status: dict,
+        multimodal: bool,
     ):
         # 该函数用于将worker发送来的身份信息保存在controller的worker_info中
 
@@ -112,6 +117,7 @@ class Controller:
             worker_status["queue_length"],
             check_heart_beat,
             time.time(),
+            multimodal,
         )
 
         logger.info(f"Register done: {worker_name}, {worker_status}")
@@ -141,7 +147,9 @@ class Controller:
         for w_name, w_info in old_info.items():
             # w_name: 'http://{worker_ip}:21002'
             # w_info: WorkerInfo(...) obj
-            if not self.register_worker(w_name, w_info.check_heart_beat, None):
+            if not self.register_worker(
+                w_name, w_info.check_heart_beat, None, w_info.multimodal
+            ):
                 logger.info(f"Remove stale worker: {w_name}")
 
     def list_models(self):
@@ -152,6 +160,24 @@ class Controller:
             # w_name: 'http://{worker_ip}:21002'
             # w_info: WorkerInfo(...) obj
             model_names.update(w_info.model_names)
+
+        return list(model_names)
+
+    def list_multimodal_models(self):
+        model_names = set()
+
+        for w_name, w_info in self.worker_info.items():
+            if w_info.multimodal:
+                model_names.update(w_info.model_names)
+
+        return list(model_names)
+
+    def list_language_models(self):
+        model_names = set()
+
+        for w_name, w_info in self.worker_info.items():
+            if not w_info.multimodal:
+                model_names.update(w_info.model_names)
 
         return list(model_names)
 
@@ -310,7 +336,10 @@ app = FastAPI()
 async def register_worker(request: Request):
     data = await request.json()
     controller.register_worker(
-        data["worker_name"], data["check_heart_beat"], data.get("worker_status", None)
+        data["worker_name"],
+        data["check_heart_beat"],
+        data.get("worker_status", None),
+        data.get("multimodal", False),
     )
     # data["worker_name"]: 'http://{worker_ip}:21002'
     # data["check_heart_beat"]: True
@@ -329,6 +358,18 @@ async def refresh_all_workers():
 @app.post("/list_models")
 async def list_models():
     models = controller.list_models()
+    return {"models": models}
+
+
+@app.post("/list_multimodal_models")
+async def list_multimodal_models():
+    models = controller.list_multimodal_models()
+    return {"models": models}
+
+
+@app.post("/list_language_models")
+async def list_language_models():
+    models = controller.list_language_models()
     return {"models": models}
 
 
