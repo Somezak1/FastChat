@@ -421,6 +421,7 @@ async def get_gen_params(
 
     if len(images) > 0:
         gen_params["images"] = images
+
     # best_of: None
     if best_of is not None:
         gen_params.update({"best_of": best_of})
