@@ -415,7 +415,7 @@ async def get_gen_params(
         "max_new_tokens": max_tokens,
         # max_tokens: API接口调用时传入的"max_tokens"值, 如不指定则采用默认值None
         "echo": echo,
-        # echo: None
+        # echo: False
         "stop_token_ids": conv.stop_token_ids,
     }
 
@@ -552,6 +552,17 @@ async def create_chat_completion(request: ChatCompletionRequest):
         return error_check_ret
 
     gen_params["max_new_tokens"] = max_new_tokens
+    # 与生成相关的参数
+    # temperature:       可以通过参数 "temperature" 指定, 默认值 0.7
+    # logprobs:          只要不修改 fastchat 源码就无法通过参数指定, 值为 None
+    # top_p:             可以通过参数 "top_p" 指定, 默认值 1.0
+    # top_k:             可以通过参数 "top_k" 指定, 默认值 -1
+    # presence_penalty:  可以通过参数 "presence_penalty" 指定, 默认值 0.0
+    # frequency_penalty: 可以通过参数 "frequency_penalty" 指定, 默认值 0.0
+    # max_new_tokens:    可以通过参数 "max_tokens" 指定, 若不指定则为 context_len - prompt_len, 若指定则为 min(max_tokens, context_len - prompt_len). context_len 由 config.json 决定, 一般为 rope_scaling * max_position_embeddings
+    # echo:              只要不修改 fastchat 源码就无法通过参数指定, 值为 False
+    # stop_token_ids:    只要不修改 fastchat 源码就无法通过参数指定, 值为 conv.stop_token_ids, conv 是检索到的对话模板
+    # stop:              可以通过参数 "stop" 指定, 若不指定则为 [conv.stop_str], 若指定则为 your_stop + [conv.stop_str]
 
     # 流式调用
     if request.stream:

@@ -103,6 +103,18 @@ class VLLMWorker(BaseModelWorker):
         if temperature <= 1e-5:
             top_p = 1.0
 
+        # 传入 SamplingParams 的参数 取值一览
+        # temperature:       可以通过参数 "temperature" 指定, 默认值 0.7
+        # top_p:             可以通过参数 "top_p" 指定, 若不指定则为 1.0, 若指定则为 max(top_p, 1e-5). 当 temperature < 1e-5 时, top_p 强行为 1.0
+        # top_k:             可以通过参数 "top_k" 指定, 默认值 -1
+        # presence_penalty:  可以通过参数 "presence_penalty" 指定, 默认值 0.0
+        # frequency_penalty: 可以通过参数 "frequency_penalty" 指定, 默认值 0.0
+        # max_new_tokens:    可以通过参数 "max_tokens" 指定, 若不指定则为 context_len - prompt_len, 若指定则为 min(max_tokens, context_len - prompt_len). context_len 由 config.json 决定, 一般为 rope_scaling * max_position_embeddings
+        # stop_token_ids:    只要不修改 fastchat 源码就无法通过参数指定, conv 是检索到的对话模板, 若 conv.stop_token_ids 存在, 则值为 conv.stop_token_ids, 若不存在则为 []. 此外 if tokenizer.eos_token_id is not None: stop_token_ids.append(tokenizer.eos_token_id)
+        # stop:              可以通过参数 "stop" 指定, 若不指定则为 [conv.stop_str] + [tokenizer.decode(id) for id in stop_token_ids], 若指定则为 your_stop + [conv.stop_str] + [tokenizer.decode(id) for id in stop_token_ids]
+        # use_beam_search:   只要不修改 fastchat 源码就无法通过参数指定, 值为 False
+        # best_of:           只要不修改 fastchat 源码就无法通过参数指定, 值为 None
+        # n:                 只要不修改 fastchat 源码就无法通过参数指定, 值为 1
         sampling_params = SamplingParams(
             n=1,
             temperature=temperature,
