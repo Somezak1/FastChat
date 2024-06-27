@@ -422,6 +422,7 @@ async def get_gen_params(
     if len(images) > 0:
         gen_params["images"] = images
 
+    # 下面 best_of 和 use_beam_search 两个参数只要不修改 fastchat 源码就无法通过参数指定
     # best_of: None
     if best_of is not None:
         gen_params.update({"best_of": best_of})
@@ -499,12 +500,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # class ChatCompletionRequest(BaseModel):
     #     model: str
     #     messages: Union[str, List[Dict[str, str]]]
-    #     temperature: Optional[float] = 0.7
-    #     top_p: Optional[float] = 1.0
-    #     top_k: Optional[int] = -1
-    #     n: Optional[int] = 1
-    #     max_tokens: Optional[int] = None
-    #     stop: Optional[Union[str, List[str]]] = None
+    #     temperature: Optional[float] = 0.7, 要求传入范围在 [0, 2] 的浮点数
+    #     top_p: Optional[float] = 1.0, 要求传入范围在 [0, 1] 的浮点数
+    #     top_k: Optional[int] = -1, 要求传入 ≥ 1 或者 = -1 的整数
+    #     n: Optional[int] = 1, 要求传入 ≥ 1 的整数
+    #     max_tokens: Optional[int] = None, 要求传入 ≥ 1 的整数
+    #     stop: Optional[Union[str, List[str]]] = None, 要求传入一个字符串或者是一个字符串列表
     #     stream: Optional[bool] = False
     #     presence_penalty: Optional[float] = 0.0
     #     frequency_penalty: Optional[float] = 0.0
@@ -559,10 +560,10 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # top_k:             可以通过参数 "top_k" 指定, 默认值 -1
     # presence_penalty:  可以通过参数 "presence_penalty" 指定, 默认值 0.0
     # frequency_penalty: 可以通过参数 "frequency_penalty" 指定, 默认值 0.0
-    # max_new_tokens:    可以通过参数 "max_tokens" 指定, 若不指定则为 context_len - prompt_len, 若指定则为 min(max_tokens, context_len - prompt_len). context_len 由 config.json 决定, 一般为 rope_scaling * max_position_embeddings
+    # max_new_tokens:    可以通过参数 "max_tokens" 指定, 若不指定则为 context_len - prompt_len, 若指定则为 min(max_tokens, context_len - prompt_len). context_len 由 config.json 决定, 一般为 rope_scaling_factor * max_position_embeddings, 如果 config.json 中未定义 rope_scaling_factor, 则 rope_scaling_factor 默认为 1
     # echo:              只要不修改 fastchat 源码就无法通过参数指定, 值为 False
-    # stop_token_ids:    只要不修改 fastchat 源码就无法通过参数指定, 值为 conv.stop_token_ids, conv 是检索到的对话模板
-    # stop:              可以通过参数 "stop" 指定, 若不指定则为 [conv.stop_str], 若指定则为 your_stop + [conv.stop_str]
+    # stop_token_ids:    只要不修改 fastchat 源码就无法通过参数指定, 值为 conv.stop_token_ids, 若 conversation.py 中没定义 conv.stop_token_ids 则为 None
+    # stop:              可以通过参数 "stop" 指定, 指定的值既可是字符串, 也可以是字符串组成的列表. 若 conversation.py 中的 conv.stop_str 存在, 则返回 your_stop + [conv.stop_str]; 若 conversation.py 中 conv.stop_str 不存在, 则返回 your_stop, 如果你自己也不指定, 则返回 None
 
     # 流式调用
     if request.stream:
